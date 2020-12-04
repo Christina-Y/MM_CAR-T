@@ -1,0 +1,60 @@
+---
+title: "MMRF survival - Gene expression"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r load_libraries}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyr)
+library(dplyr)
+library(survival)
+library(survminer)
+
+`%notin%` <- Negate(`%in%`)
+```
+
+```{r}
+surv.dat <- as_tibble(readRDS("~/Downloads/mmrf_WIP/rds/mmrf_clin_final_relapse_censor.rds"))
+head(surv.dat)
+surv.dat$Patient_ID <- as.character(surv.dat$Patient_ID)
+
+mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+mat[1:5, 1:5]
+
+pts <- intersect(surv.dat$Patient_ID, colnames(mat))
+### Notes: all mat is in pts, not all surv.dat is, so subset surv.dat
+
+surv.pts <- surv.dat[match(colnames(mat), surv.dat$Patient_ID), ]
+all.equal(surv.pts$Patient_ID, colnames(mat)) # TRUE
+
+### get gene expression of MR1
+gene <- "MR1"
+mat.exp <- mat[which(rownames(mat) %in% gene), ]
+head(mat.exp)
+
+### binarize gene expression
+bin.gene <- ifelse(mat.exp < median(mat.exp), "low", "high")
+
+all.equal(names(mat.exp), surv.pts$Patient_ID)
+gene.surv <- cbind(mat.exp, surv.pts)
+gene.surv[1:5, 1:5]
+
+### fit survival curve and plot Kaplan Meier
+## OS
+fit <- survfit(Surv(gene.surv$OS_TIME, gene.surv$CENSOR_EVENT) ~ bin.gene)
+ggsurvplot(fit, data=gene.surv[, c("OS_TIME", "CENSOR_EVENT", "mat.exp")], risk.table=FALSE, title=gene, pval=TRUE, pval.method=TRUE)
+
+## RFS
+fit <- survfit(Surv(gene.surv$MIN_TIME, gene.surv$CENSOR_EVENT) ~ bin.gene)
+ggsurvplot(fit, data=gene.surv[, c("MIN_TIME", "CENSOR_EVENT", "mat.exp")], 
+           risk.table=FALSE, title=gene, pval=TRUE, pval.method=TRUE)
+
+# ## DFS
+# fit <- survfit(Surv(gene.surv$DFS_TIME, gene.surv$CENSOR_EVENT) ~ bin.gene)
+# ggsurvplot(fit, data=gene.surv[, c("DFS_TIME", "CENSOR_EVENT", "mat.exp")], 
+#            risk.table=FALSE, title=gene, pval=TRUE, pval.method=TRUE)
+
+```

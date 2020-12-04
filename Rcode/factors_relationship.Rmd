@@ -1,0 +1,105 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+## How related are clinical features? Calculate chi-square statistic to observe overlap.
+
+Read in data
+```{r}
+mmrf <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+
+r.iss <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/r_iss_factors.rds")
+head(r.iss)
+
+trans <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+head(trans)
+
+drivers <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/drivers_factors.rds")
+head(drivers)
+
+bcma <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/mmrf_bcma_levels.rds")
+head(bcma)
+
+pts <- intersect(names(trans), names(bcma))
+
+r.iss <- r.iss[which(names(r.iss) %in% pts)]
+trans <- trans[which(names(trans) %in% pts)]
+
+r.iss <- r.iss[which(names(r.iss) %in% pts)]
+bcma <- bcma[which(names(bcma) %in% pts)]
+
+r.iss <- r.iss[which(names(r.iss) %in% pts)]
+drivers <- drivers[which(names(drivers) %in% pts)]
+
+trans <- trans[which(names(trans) %in% pts)]
+drivers <- drivers[which(names(drivers) %in% pts)]
+
+trans <- trans[which(names(trans) %in% pts)]
+bcma <- bcma[which(names(bcma) %in% pts)]
+
+drivers <- drivers[which(names(drivers) %in% pts)]
+bcma <- bcma[which(names(bcma) %in% pts)]
+```
+
+Calculate chi-square statistic
+```{r}
+?chisq.test
+
+table(r.iss, trans)
+chisq.test(r.iss, trans) # X-squared = 53.11, df = 6, p-value = 1.115e-09
+prop.table(table(r.iss, trans), 1) # row percentages
+#      trans
+# r.iss   t(11;14)   t(14;16)   t(14;20)    t(4;14)
+#     1 0.97560976 0.00000000 0.02439024 0.00000000
+#     2 0.39639640 0.13513514 0.04504505 0.42342342
+#     3 0.20689655 0.20689655 0.03448276 0.55172414
+
+table(r.iss, bcma)
+chisq.test(r.iss, bcma) # X-squared = 6.4153, df = 4, p-value = 0.1702
+prop.table(table(r.iss, bcma), 1)
+#      bcma
+# r.iss        low     medium       high
+#     1 0.17213115 0.72950820 0.09836066
+#     2 0.09491525 0.75254237 0.15254237
+#     3 0.12000000 0.76000000 0.12000000
+
+table(r.iss, drivers)
+chisq.test(r.iss, drivers) # X-squared = 16.229, df = 4, p-value = 0.002726
+prop.table(table(r.iss, drivers), 1)
+#      drivers
+# r.iss 0 to 4 drivers 5 to 9 drivers 10+ drivers
+#     1     0.46721311     0.45901639  0.07377049
+#     2     0.29830508     0.56949153  0.13220339
+#     3     0.20000000     0.66000000  0.14000000
+
+table(trans, drivers)
+chisq.test(trans, drivers) # X-squared = 51.213, df = 6, p-value = 2.684e-09
+prop.table(table(trans, drivers))
+#           drivers
+# trans      0 to 4 drivers 5 to 9 drivers 10+ drivers
+#   t(11;14)    0.251082251    0.238095238 0.017316017
+#   t(14;16)    0.021645022    0.051948052 0.038961039
+#   t(14;20)    0.008658009    0.017316017 0.017316017
+#   t(4;14)     0.047619048    0.242424242 0.047619048
+
+table(bcma, trans)
+chisq.test(bcma, trans) # X-squared = 54.906, df = 6, p-value = 4.844e-10
+prop.table(table(bcma, trans), 1)
+#         trans
+# bcma       t(11;14)   t(14;16)   t(14;20)    t(4;14)
+#   low    0.69387755 0.22448980 0.06122449 0.02040816
+#   medium 0.51948052 0.08441558 0.04545455 0.35064935
+#   high   0.10714286 0.07142857 0.00000000 0.82142857
+
+table(bcma, drivers)
+chisq.test(bcma, drivers) # X-squared = 3.3931, df = 4, p-value = 0.4943
+prop.table(table(bcma, drivers), 1)
+#         drivers
+# bcma     0 to 4 drivers 5 to 9 drivers 10+ drivers
+#   low         0.4303797      0.4556962   0.1139241
+#   medium      0.3318284      0.5440181   0.1241535
+#   high        0.3157895      0.5394737   0.1447368
+```

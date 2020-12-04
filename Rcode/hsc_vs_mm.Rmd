@@ -1,0 +1,326 @@
+---
+title: "Calculate normal/mm ratios"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+### The code is fine, but the data cannot be confidently combined to calculate the ratio. 
+
+Methods: 
+1) Start with gene matrix
+2) Convert into z-score
+3) Calculate mean expression value for each gene (separately in HSC and MMRF)
+4) Normal/MM ratio or MM/Normal ratio?
+5) Barplot or boxplot
+
+```{r libraries}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyr)
+library(ggpubr)
+```
+
+Re-run the merging:
+1) increase pool of genes used to calculate z-score
+2) find a house-keeping gene similarly expressed between HSC and MM
+3) use ComBat - sva package
+```{r try (1) - ehh}
+hsc <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/normals/gse17054_annot_log2.rds")
+rownames(hsc)[rownames(hsc)=="TNFRSF17"] <- "BCMA"
+rownames(hsc)[rownames(hsc)=="NCAM1"] <- "CD56"
+rownames(hsc)[rownames(hsc)=="SDC1"] <- "CD138"
+rownames(hsc)[rownames(hsc)=="TNFRSF13B"] <- "TACI"
+
+ark <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_annot_log2.rds")
+
+rand.genes <- sample(rownames(hsc), 500)
+
+genelist <- unique(c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D", rand.genes))
+# subset genes: get indices
+idxs <- sapply(genelist, function(x) grep(paste0("^", x, "$"), rownames(hsc)))
+hsc.mat <- hsc[idxs, ]
+idxs <- sapply(genelist, function(x) grep(paste0("^", x, "$"), rownames(ark)))
+ark.mat <- ark[idxs, ]
+
+#### now try z-score
+hsc.zscore <- scale(hsc.mat, center=TRUE)
+head(hsc.zscore)
+# hist(hsc.zscore["BCMA", ], breaks=4)
+
+ark.zscore <- scale(ark.mat, center=TRUE)
+ark.zscore[1:5, 1:5]
+# hist(ark.zscore["BCMA", ])
+
+### calc means
+hsc.means <- apply(hsc.zscore, 1, mean)
+ark.means <- apply(ark.zscore, 1, mean) 
+
+### calc mm-normal
+ark.hsc <- NULL
+for(g in names(hsc.means)) {
+  mm.norm <- mmrf.means[g] - hsc.means[g]
+  mmrf.hsc <- c(mmrf.hsc, mm.norm)
+  
+  mm.norm <- ark.means[g] - hsc.means[g]
+  ark.hsc <- c(ark.hsc, mm.norm)
+}
+
+# hist(ark.hsc)
+summary(ark.hsc)
+# barplot(ark.hsc)
+
+head(ark.hsc)
+
+### keep 24 genes
+genelist <- c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D")
+# subset genes: get indices
+idxs <- sapply(genelist, function(x) grep(paste0("^", x, "$"), names(ark.hsc)))
+ark.hsc.genes24 <- ark.hsc[idxs]
+# barplot(ark.hsc.genes24)
+
+### plot
+mat <- ark.hsc.genes24
+df <- data.frame(Genes=names(mat), Diff=mat)
+df$Color <- ifelse(df$Diff > 0, "#CA0020", "#0571B0") # red for positive difference, blue for negative difference
+df$Genes <- reorder(df$Genes, df$Diff) # order by difference
+## plot
+ggplot(df, aes(x=Genes, y=Diff)) +
+  geom_bar(stat="identity", fill=df$Color) +
+  coord_flip() +
+  theme_pubr() +
+  xlab("") +
+  ylab("Cancer - Normal (z-score)")
+```
+
+```{r try (2) - ehh, works?}
+hsc <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/normals/gse17054_annot_log2.rds")
+dim(hsc) # 20136 x 4
+head(hsc)
+rownames(hsc)[rownames(hsc)=="TNFRSF17"] <- "BCMA"
+rownames(hsc)[rownames(hsc)=="NCAM1"] <- "CD56"
+rownames(hsc)[rownames(hsc)=="SDC1"] <- "CD138"
+rownames(hsc)[rownames(hsc)=="TNFRSF13B"] <- "TACI"
+hsc.rowMeans <- rowMeans(hsc)
+hsc.rowMeans[low.expr.genenames]
+
+ark <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_annot_log2.rds")
+dim(ark) # 20316 x 1035
+head(ark[, 1:5])
+ark.rowMeans <- rowMeans(ark)
+head(ark.rowMeans)
+ark.rowMeans[low.expr.genenames]
+
+diff.rowMeans <- sapply(names(ark.rowMeans), function(g) {
+  return(ark.rowMeans[g] - hsc.rowMeans[g])
+})
+
+summary(diff.rowMeans)
+sum(diff.rowMeans < 1, na.rm=TRUE)
+low.expr.genes <- diff.rowMeans[which(diff.rowMeans < 1)] ## 26 genes, which are house-keeping?
+low.expr.genenames <- sapply(strsplit(names(low.expr.genes), "\\."), '[', 1)
+write.csv(low.expr.genenames, "~/Downloads/Rshiny_cell-markers/Rtables/hsc_ark_consistent_genes.csv",
+          row.names=FALSE)
+
+genelist <- c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D", low.expr.genenames)
+# subset genes: get indices
+idxs <- sapply(genelist, function(x) grep(paste0("^", x, "$"), rownames(hsc)))
+hsc.mat <- hsc[idxs, ]
+idxs <- sapply(genelist, function(x) grep(paste0("^", x, "$"), rownames(ark)))
+ark.mat <- ark[idxs, ]
+
+all.equal(row.names(hsc.mat), row.names(ark.mat))
+
+#### now try z-score - use mean of "constant" genes
+# hsc.zscore <- scale(hsc.mat, center=TRUE)
+# (hsc.mat[3, 1] - mean(hsc.mat[, 1]))/sd(hsc.mat[, 1])
+# head(hsc.zscore)
+# # hist(hsc.zscore["BCMA", ], breaks=4)
+
+# (hsc.mat[2, 1] - mean(hsc.mat[idxs, 1]))/sd(hsc.mat[idxs, 1])
+# head((hsc.mat - mean(hsc.mat[idxs, ]))/sd(hsc.mat[idxs, ]))
+idxs <- sapply(low.expr.genenames, function(x) grep(paste0("^", x, "$"), rownames(hsc.mat)))
+hsc.zscore <- (hsc.mat - mean(hsc.mat[idxs, ]))/sd(hsc.mat[idxs, ])
+# t.hsc <- t(hsc.mat)
+# head((t.hsc - mean(t.hsc))/sd(t.hsc))
+
+# ark.zscore <- scale(ark.mat, center=TRUE)
+# ark.zscore[1:5, 1:5]
+# # hist(ark.zscore["BCMA", ])
+idxs <- sapply(low.expr.genenames, function(x) grep(paste0("^", x, "$"), rownames(ark.mat)))
+ark.zscore <- (ark.mat - mean(ark.mat[idxs, ]))/sd(ark.mat[idxs, ])
+
+### calc means
+hsc.means <- apply(hsc.zscore, 1, mean)
+ark.means <- apply(ark.zscore, 1, mean) 
+
+### calc mm-normal
+ark.hsc <- NULL
+for(g in names(hsc.means)) {
+  mm.norm <- mmrf.means[g] - hsc.means[g]
+  mmrf.hsc <- c(mmrf.hsc, mm.norm)
+  
+  mm.norm <- ark.means[g] - hsc.means[g]
+  ark.hsc <- c(ark.hsc, mm.norm)
+}
+
+# hist(ark.hsc)
+summary(ark.hsc)
+# barplot(ark.hsc)
+
+head(ark.hsc)
+
+### keep 24 genes
+genelist <- c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D")
+# subset genes: get indices
+idxs <- sapply(genelist, function(x) grep(paste0("^", x, "$"), names(ark.hsc)))
+ark.hsc.genes24 <- ark.hsc[idxs]
+# barplot(ark.hsc.genes24)
+
+### plot
+mat <- ark.hsc.genes24
+df <- data.frame(Genes=names(mat), Diff=mat)
+df$Color <- ifelse(df$Diff > 0, "#CA0020", "#0571B0") # red for positive difference, blue for negative difference
+df$Genes <- reorder(df$Genes, df$Diff) # order by difference
+## plot
+ggplot(df, aes(x=Genes, y=Diff)) +
+  geom_bar(stat="identity", fill=df$Color) +
+  coord_flip() +
+  theme_pubr() +
+  xlab("") +
+  ylab("Cancer - Normal (z-score)")
+```
+
+```{r try (3)}
+library(sva)
+
+hsc <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/normals/gse17054_annot_log2.rds")
+ark <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_annot_log2.rds")
+
+combined.mat <- cbind(hsc, ark)
+combined.mat[1:5, 1:5]
+batch <- factor(c(rep("hsc", ncol(hsc)), rep("mm", ncol(ark))))
+
+modcombat <- model.matrix(~1, data=batch)
+combat.edata <- ComBat(dat=combined.mat, batch=batch, mod=modcombat, par.prior=TRUE, prior.plots=FALSE)
+```
+
+
+Step 1
+```{r load data}
+hsc <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_gse17054.rds")
+hsc[1:5, 1:4] # 24 x 4
+hist(hsc["BCMA", ], breaks=4)
+
+mmrf <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+mmrf[1:5, 1:5] # 24 x 598
+hist(mmrf["BCMA", ])
+
+ark <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_arkansas.rds")
+ark[1:5, 1:5]
+hist(ark["BCMA", ])
+```
+
+Step 2
+```{r z-score}
+hsc.zscore <- scale(hsc, center=TRUE)
+head(hsc.zscore)
+hist(hsc.zscore["BCMA", ], breaks=4)
+
+ark.zscore <- scale(ark, center=TRUE)
+ark.zscore[1:5, 1:5]
+hist(ark.zscore["BCMA", ])
+
+mmrf.zscore <- scale(mmrf)
+# mmrf.zscore[1:5, 1:5]
+# hist(mmrf.zscore["BCMA", ])
+```
+
+Step 3
+```{r}
+hsc.means <- apply(hsc.zscore, 1, mean)
+ark.means <- apply(ark.zscore, 1, mean) 
+
+# ### divide each vector by min value
+# hsc.means <- hsc.means/min(hsc.means)
+# ark.means <- ark.means/min(ark.means)
+# 
+# ### take negative inverse of any negative z-score means
+# hsc.means[which(hsc.means < 0)] <- -1/hsc.means[which(hsc.means < 0)]
+# ark.means[which(ark.means < 0)] <- -1/ark.means[which(ark.means < 0)]
+# 
+mmrf.means <- apply(mmrf.zscore, 1, mean)
+```
+
+Step 4 - calculate cancer minus normal
+Want: High in cancer, low in normal -> value > 0
+```{r}
+mmrf.hsc <- NULL
+ark.hsc <- NULL
+for(g in names(hsc.means)) {
+  mm.norm <- mmrf.means[g] - hsc.means[g]
+  mmrf.hsc <- c(mmrf.hsc, mm.norm)
+  
+  mm.norm <- ark.means[g] - hsc.means[g]
+  ark.hsc <- c(ark.hsc, mm.norm)
+}
+
+# hist(hsc.mmrf, breaks=8)
+hist(ark.hsc)
+summary(ark.hsc)
+
+head(ark.hsc)
+which(ark.hsc > 0.8683) # +1 std dev
+which(ark.hsc < -0.7560) # -1 std dev
+
+barplot(ark.hsc)
+ark.hsc["IGKC"]
+```
+
+Step 5
+```{r}
+plot.title <- "MM-HSC difference, Arkansas"
+filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/figure3/HSC_MM_difference_Arkansas"
+
+mat <- ark.hsc.genes24 ### ark.hsc or mmrf.hsc
+df <- data.frame(Genes=names(mat), Diff=mat)
+df$Color <- ifelse(df$Diff > 0, "#CA0020", "#0571B0") # red for positive difference, blue for negative difference
+
+# genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+# df$Genes.relevel <- factor(df$Genes, levels=rev(genes.order)) # boxplot order
+df$Genes <- reorder(df$Genes, df$Diff) # order by difference
+
+tiff(filename=paste0(filepath, ".tiff"), res = 300, width = 6, height = 8, units = "in")
+p <- ggbarplot(df, x="Genes", y="Diff", orientation="horiz",
+               fill="Color", color="Color") 
+ggpar(p, main=plot.title, xlab="", ylab="", legend="none")
+dev.off()
+
+saveRDS(df, file="~/Downloads/Rshiny_cell-markers/Rdata/plotting/df_hsc-vs-mm_ark.rds")
+
+####### ggplot
+ggplot(df, aes(x=Genes, y=Diff)) +
+  geom_bar(stat="identity", fill=df$Color) +
+  coord_flip() +
+  theme_pubr() +
+  xlab("") +
+  ylab("Cancer - Normal (z-score)")
+
+
+```

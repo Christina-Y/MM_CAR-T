@@ -1,0 +1,165 @@
+---
+title: "lmQCM for myeloma data"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Load libraries
+```{r}
+library(lmQCM)
+library(reshape2)
+library(ggplot2)
+library(tidyverse)
+```
+
+Run lmQCM on Arkansas relapsed patients
+```{r}
+mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_annot_expr.rds")
+dim(mat)
+mat[1:5, 1:5]
+
+groups <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/factors/arkansas_baseline_bcma_factors.rds")
+head(groups)
+length(groups)
+
+mat.baseline <- mat[, which(colnames(mat) %in% names(groups))]
+dim(mat.baseline) # 20316   780
+
+mat.relapse <- mat[, !(colnames(mat) %in% names(groups))]
+dim(mat.relapse) # 20316   255
+```
+
+
+```{r}
+### remove genes with lowest expression and variance
+## use lmQCM function fastFilter
+mat.filter <- fastFilter(mat.baseline, lowest_percentile_mean=0.2, lowest_percentile_variance=0.2)
+dim(mat.filter) # 13001   255 for relapse, 13001   780 for baseline
+
+gamma70 <- lmQCM(mat.filter, gamma=0.60, CCmethod="pearson", normalization=FALSE)
+gamma70@clusters.names
+saveRDS(gamma70, file="~/Documents/osu/Perna_lab/Arkansas_baseline_lmQCM/gamma70/gamma70.rds")
+
+gamma70 <- readRDS("~/Documents/osu/Perna_lab/Arkansas_baseline_lmQCM/gamma70/gamma70.rds")
+
+i <- 1
+for(module in gamma70@clusters.names) {
+  filename <- paste0("~/Documents/osu/Perna_lab/Arkansas_baseline_lmQCM/gamma70/gamma70_mod", i, ".csv")
+  write.csv(module, file=filename, row.names=FALSE)
+  i <- i + 1
+}
+```
+
+
+Enrichr
+```{r}
+library(enrichR)
+
+options(stringAsFactors = FALSE)
+
+dbs <- listEnrichrDbs()
+dbs[order(dbs$geneCoverage, decreasing=TRUE), ]
+
+### choose databases
+dbs <- c("GO_Biological_Process_2018",
+         "GO_Cellular_Component_2018",
+         "GO_Molecular_Function_2018",
+         "KEGG_2019_Human",
+         "Reactome_2016",
+         "TRANSFAC_and_JASPAR_PWMs", 
+         "Chromosome_Location_hg19",
+         "Chromosome_Location", 
+         "Jensen_COMPARTMENTS")
+
+
+### automated process: (just get first 10 modules)
+# length(gamma70@clusters.names)
+for(mod in 1:length(gamma60@clusters.names)) {
+  ## conduct enrichment
+  enriched <- enrichr(gamma60@clusters.names[[mod]], dbs)
+  
+  ## print out as csv
+  sapply(names(enriched), function(x) write.csv(enriched[[x]], row.names=FALSE, file=paste0("~/Documents/osu/Perna_lab/Arkansas_baseline_lmQCM/gamma60/enrichr/mod", mod, "/", x, ".csv")))
+}
+
+
+```
+
+Which modules overlap?
+```{r}
+gamma70 <- readRDS("~/Documents/osu/Perna_lab/Arkansas_baseline_lmQCM/gamma70/gamma70.rds")
+
+gamma60 <- readRDS("~/Documents/osu/Perna_lab/Arkansas_baseline_lmQCM/gamma60/gamma60.rds")
+
+intersect(gamma70@clusters.names[[1]], gamma60@clusters.names[[1]])
+```
+
+Calculate correlation coefficients between module genes and cell marker genes
+```{r}
+genes24 <- c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+             "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+             "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+             "ICAM1", "CD74", "CD81", "CD86", "CD200", 
+             "IGKC","FUT3", "CD70", "CD1D") 
+
+# subset genes: get indices
+idxs <- sapply(genes24, function(x) grep(paste0("^", x, "$"), rownames(mat.relapse)))
+mat.genes24 <- log2(mat.baseline[idxs, ] + 1)
+dim(mat.genes24)
+```
+
+Get eigengenes and calculate Spearman correlation with 24 genes
+```{r get_eigengenes}
+eig.mat <- gamma60@eigengene.matrix
+
+### if x and y are matrices, then the correlations are calculated between the columns of x and columns of y
+dim(eig.mat)
+dim(mat.genes24)
+
+eig.markers.scc <- abs(cor(t(eig.mat), t(mat.genes24), method="spearman"))
+dim(eig.markers.scc) # 32  24
+eig.markers.scc[1:5, 1:5]
+summary(eig.markers.scc)
+View(eig.markers.scc[, 1])
+```
+
+
+Can just run whole chunk after changing module number
+```{r}
+mod.genes <- gamma60@clusters.names[[29]]
+idxs <- sapply(mod.genes, function(x) grep(paste0("^", x, "$"), rownames(mat.baseline)))
+mat.mod <- log2(mat.baseline[idxs, ] + 1)
+dim(mat.mod)
+
+# cor.mat <- cor(t(mat.genes24), t(mat.mod))
+# dim(cor.mat)
+
+### calculate PCC, taking absolute value of correlation
+mat.pcc <- abs(stats::cor(t(mat.genes24), t(mat.mod), method="pearson"))
+mat.scc <- abs(stats::cor(t(mat.genes24), t(mat.mod), method="spearman"))
+
+### keep upper triangle - not appropriate for non-square correlation matrices
+# mat.pcc[upper.tri(mat.pcc, diag=F)] <- NA
+# mat.scc[upper.tri(mat.scc, diag=F)] <- NA
+
+### melt
+melt.pcc <- melt(mat.pcc, na.rm=T)
+melt.scc <- melt(mat.scc, na.rm=T)
+
+### plot
+cormat <- melt.scc # CHANGE
+ggplot(cormat, aes(Var1, Var2)) +
+  geom_tile(aes(fill=value)) +
+  scale_fill_continuous(limits=c(0, 1), 
+                        na.value="white", low="steelblue", high="orange") +
+  #xlim(levels(genes.order)) +
+  labs(x="", y="", fill="abs(SCC)", title="") +
+  theme(axis.text.x=element_text(angle=90, vjust=0.5))
+  # add to theme when too many genes: axis.text.y=element_blank()
+
+rownames(mat.pcc)[rowMeans(mat.pcc) > 0.2]
+# plot(mat.pcc["FUT3", ])
+# plot(x=mat.genes24["FUT3", ], y=1:dim(mat.genes24)[2])
+
+```

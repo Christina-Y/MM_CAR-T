@@ -1,0 +1,375 @@
+---
+title: "BMCA low"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Identify patients with low BCMA expression (bottom third)
+Note: don't make data into a dataframe before plotting histograms
+```{r}
+genes20.mmrf <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+dim(genes20.mmrf) # 24 598
+head(genes20.mmrf[, 1:6])
+bcma <- genes20.mmrf["BCMA", ]
+head(bcma)
+hist(bcma, main="BCMA", xlab="log2(Gene expression)")
+## get cutoff values to use to divide gene expression
+# use +/- 1 standard deviation as cutoff
+cutoff.low <- mean(bcma) - sd(bcma)
+cutoff.hi <- mean(bcma) + sd(bcma)
+bcma.low <- bcma[which(bcma < cutoff.low)]
+length(bcma.low) # 79, 2 sd -> 20
+bcma.med <- bcma[which(cutoff.low < bcma & bcma < cutoff.hi)]
+length(bcma.med) # 443
+bcma.hi <- bcma[which(cutoff.hi < bcma)]
+length(bcma.hi) # 76, 2 sd -> 8
+
+### Make plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/mmrf_BCMA_histogram.tiff", res = 300, width = 6, height = 4, units = "in")
+hist(bcma, main="BCMA", xlab="log2(Gene expression)")
+abline(v=cutoff.low, col="red")
+abline(v=cutoff.hi, col="red")
+dev.off()
+
+### dataframe time
+### make into dataframe
+d <- data.frame(Genes=rownames(genes20.mmrf),
+                genes20.mmrf)
+rownames(d) <- NULL
+str(d)
+d[1:5, 1:5]
+
+### just straight up do t-tests of BCMA-high vs -low?
+bcma.factor <- factor(c(rep("low", length(bcma.low)), 
+                        rep("medium", length(bcma.med)), 
+                        rep("high", length(bcma.hi))),
+                      levels=c("low", "medium", "high"))
+names(bcma.factor) <- c(names(bcma.low), names(bcma.med), names(bcma.hi))
+bcma.factor <- bcma.factor[order(names(bcma.factor))] # order patients
+all.equal(names(d)[-c(1)], names(bcma.factor)) # TRUE
+saveRDS(bcma.factor, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/mmrf_bcma_levels.rds")
+
+### t-test
+t.test(d[d$Genes=="ICAM1", names(d) %in% names(bcma.factor[which(bcma.factor=="low")])],
+       d[d$Genes=="ICAM1", names(d) %in% names(bcma.factor[which(bcma.factor=="high")])])
+
+
+### aggregate bmca - turn into categorical variable
+dd <- gather(d, key="Patient", value="Expression", -Genes)
+head(dd)
+
+bcma.level <- data.frame(Patient=c(names(bcma.low), 
+                                   names(bcma.med), 
+                                   names(bcma.hi)), 
+                       BCMA.level=factor(c(rep("low", length(bcma.low)), 
+                                    rep("medium", length(bcma.med)), 
+                                    rep("high", length(bcma.hi))),
+                                    levels=c("low", "medium", "high")
+                                    )
+                       )
+head(bcma.level)
+table(bcma.level$BCMA.level)
+
+dd.bcma <- merge(dd, bcma.level, by="Patient")
+head(dd.bcma)
+saveRDS(dd.bcma, file="~/Downloads/Rshiny_cell-markers/Rdata/mmrf_dd_bcma_levels.rds")
+
+
+### Save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/BCMA_boxplot_genes24.tiff", res = 300, width = 10, height = 7, units = "in")
+## specify how many groups need color
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(9, "Blues"))(ncols)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd.bcma$Genes.relevel <- factor(dd$Genes, levels=genes.order)
+## plot
+ggplot(dd.bcma, aes(x=Genes.relevel, y=Expression, fill=BCMA.level)) +
+  geom_boxplot(notch=TRUE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  ggtitle("Gene expression stratified by BCMA expression - MMRF") + 
+  ylab("log2(Expression)") +
+  xlab("Genes")
+dev.off()
+```
+
+<!--
+Calculate the statistics - ANOVA followed by Tukey
+```{r}
+### ANOVA
+head(bcma.factor)
+## make sure the following is true before running
+all.equal(colnames(genes20.mmrf), names(bcma.factor)) # TRUE
+markers <- rownames(genes20.mmrf)
+for(gene in markers) {
+  gene.expr <- genes20.mmrf[gene, ]
+  
+  # ANOVA
+  model <- aov(gene.expr ~ bcma.factor)
+  aov.pval <- summary(aov(model))[[1]][["Pr(>F)"]][[1]]
+  
+  # if significant, then Tukey
+  if(aov.pval <= 0.05) {
+    print(paste("yes", gene))
+    
+    tukey <- TukeyHSD(model)
+    
+    write.csv(tukey$bcma.factor, file=paste0("~/Downloads/Rshiny_cell-markers/Rtables/BCMA_mmrf_tukey/", gene, ".csv"))
+  }
+}
+
+## t-test for sanity check on Tukey values
+t.test(genes20.mmrf["BST2", which(bcma.factor=="low")], genes20.mmrf["BST2", which(bcma.factor=="low")])
+```
+-->
+
+This isn't quite correct. It calculates difference between genes and difference between BCMA level, but can't look at difference between genes based on BCMA level. The interaction term is a little off.
+<!--
+```{r}
+head(dd.bcma)
+### aov
+## Randomized Block Design (B is the blocking factor)?
+## not for this data
+# fit <- aov(Expression ~ Genes + BCMA.level, data=dd.bcma)
+# summary(fit)
+
+## Two Way Factorial Design?
+## looking at interaction terms while controlling for genes and BCMA status
+fit <- aov(Expression ~ Genes + BCMA.level + Genes*BCMA.level, data=dd.bcma)
+summary(fit)
+
+## Tukey post-hoc test
+tukey.bcma <- TukeyHSD(fit)
+saveRDS(tukey.bcma, file="~/Downloads/Rshiny_cell-markers/Rdata/mmrf_bcma_tukey.rds")
+head(tukey.bcma$`Genes:BCMA.level`)
+write.csv(tukey.bcma$`Genes:BCMA.level`, file="~/Downloads/Rshiny_cell-markers/Rtables/mmrf_bcma_tukey.csv")
+## pull out information in Excel by hand
+```
+-->
+
+BCMA stratification on Arkansas patients
+```{r}
+genes20.arkansas <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_arkansas.rds")
+dim(genes20.arkansas) # 24 1035
+head(genes20.arkansas[, 1:6])
+
+### read in baseline/relapse annotation
+arkansas.condition <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/arkansas_baseline_relapse.rds")
+head(arkansas.condition)
+
+all.equal(colnames(genes20.arkansas), names(arkansas.condition)) # TRUE 
+## line above must be true in order to run this:
+bcma <- genes20.arkansas["BCMA", which(arkansas.condition=="baseline")]
+bcma <- genes20.arkansas["BCMA", ] ## all Arkansas patients
+length(bcma) # 255
+hist(bcma, main="BCMA", xlab="log2(Gene expression)") # There's one patient with really low BCMA expression
+
+## get cutoff values to use to divide gene expression
+# use +/- 1 standard deviation as cutoff
+cutoff.low <- mean(bcma) - sd(bcma)
+cutoff.hi <- mean(bcma) + sd(bcma)
+bcma.low <- bcma[which(bcma < cutoff.low)]
+length(bcma.low) # 25
+bcma.med <- bcma[which(cutoff.low < bcma & bcma < cutoff.hi)]
+length(bcma.med) # 212
+bcma.hi <- bcma[which(cutoff.hi < bcma)]
+length(bcma.hi) # 18
+
+### Make plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/Arkansas_all_BCMA_histogram.tiff", res = 300, width = 6, height = 4, units = "in")
+hist(bcma, main="BCMA", xlab="log2(Gene expression)")
+abline(v=cutoff.low, col="red")
+abline(v=cutoff.hi, col="red")
+dev.off()
+
+### dataframe time
+### make into dataframe
+## subset patients who are relapsed
+d <- data.frame(Genes=rownames(genes20.arkansas),
+                genes20.arkansas[, which(arkansas.condition=="baseline")])
+d <- data.frame(Genes=rownames(genes20.arkansas),
+                genes20.arkansas) ## all Arkansas patients
+rownames(d) <- NULL
+d[1:5, 1:5]
+
+### make factor levels
+bcma.factor <- factor(c(rep("low", length(bcma.low)), 
+                        rep("medium", length(bcma.med)), 
+                        rep("high", length(bcma.hi))),
+                      levels=c("low", "medium", "high"))
+names(bcma.factor) <- c(names(bcma.low), names(bcma.med), names(bcma.hi))
+bcma.factor <- bcma.factor[order(names(bcma.factor))] # order patients
+all.equal(names(d)[-c(1)], names(bcma.factor)) # TRUE
+saveRDS(bcma.factor, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/arkansas_all_bcma_factors.rds")
+
+
+### aggregate bmca - turn into categorical variable
+dd <- gather(d, key="Patient", value="Expression", -Genes)
+head(dd)
+
+bcma.level <- data.frame(Patient=c(names(bcma.low), 
+                                   names(bcma.med), 
+                                   names(bcma.hi)), 
+                       BCMA.level=factor(c(rep("low", length(bcma.low)), 
+                                    rep("medium", length(bcma.med)), 
+                                    rep("high", length(bcma.hi))),
+                                    levels=c("low", "medium", "high")
+                                    )
+                       )
+head(bcma.level)
+table(bcma.level$BCMA.level)
+
+dd.bcma <- merge(dd, bcma.level, by="Patient")
+head(dd.bcma)
+saveRDS(dd.bcma, file="~/Downloads/Rshiny_cell-markers/Rdata/Arkansas_all_dd_bcma_levels.rds")
+
+
+### Save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/Arkansas_all_BCMA_boxplot_genes24.tiff", res = 300, width = 10, height = 7, units = "in")
+## specify how many groups need color
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(5, "Blues"))(ncols)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd.bcma$Genes.relevel <- factor(dd$Genes, levels=genes.order)
+## plot
+ggplot(dd.bcma, aes(x=Genes.relevel, y=Expression, fill=BCMA.level)) +
+  geom_boxplot(notch=TRUE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  ggtitle("Gene expression stratified by BCMA expression - Arkansas pts") + 
+  ylab("log2(Expression)") +
+  xlab("Genes")
+dev.off()
+```
+
+### Boston
+BCMA stratification on Boston patients
+```{r boston}
+genes20.boston<- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_boston.rds")
+dim(genes20.boston) # 24 264
+head(genes20.boston[, 1:6])
+
+bcma <- genes20.boston["BCMA", ]
+length(bcma) # 264
+hist(bcma, main="BCMA", xlab="log2(Gene expression)")
+
+## get cutoff values to use to divide gene expression
+# use +/- 1 standard deviation as cutoff
+cutoff.low <- mean(bcma) - sd(bcma)
+cutoff.hi <- mean(bcma) + sd(bcma)
+bcma.low <- bcma[which(bcma < cutoff.low)]
+length(bcma.low) # 34
+bcma.med <- bcma[which(cutoff.low < bcma & bcma < cutoff.hi)]
+length(bcma.med) # 192
+bcma.hi <- bcma[which(cutoff.hi < bcma)]
+length(bcma.hi) # 38
+
+### Make plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/Boston_BCMA_histogram.tiff", res = 300, width = 6, height = 4, units = "in")
+hist(bcma, main="BCMA", xlab="log2(Gene expression)", breaks=20)
+abline(v=cutoff.low, col="red")
+abline(v=cutoff.hi, col="red")
+dev.off()
+
+### dataframe time
+### make into dataframe
+d <- data.frame(Genes=rownames(genes20.boston),
+                genes20.boston)
+rownames(d) <- NULL
+d[1:5, 1:5]
+
+### just straight up do t-tests of BCMA-high vs -low?
+bcma.factor <- factor(c(rep("low", length(bcma.low)), 
+                        rep("medium", length(bcma.med)), 
+                        rep("high", length(bcma.hi))),
+                      levels=c("low", "medium", "high"))
+names(bcma.factor) <- c(names(bcma.low), names(bcma.med), names(bcma.hi))
+bcma.factor <- bcma.factor[order(names(bcma.factor))] # order patients
+all.equal(names(d)[-c(1)], names(bcma.factor)) # TRUE
+saveRDS(bcma.factor, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/boston_bcma_levels.rds")
+
+### t-test
+t.test(d[d$Genes=="BCMA", names(d) %in% names(bcma.factor[which(bcma.factor=="low")])],
+       d[d$Genes=="BCMA", names(d) %in% names(bcma.factor[which(bcma.factor=="high")])])
+
+
+### aggregate bmca - turn into categorical variable
+dd <- gather(d, key="Patient", value="Expression", -Genes)
+head(dd)
+
+bcma.level <- data.frame(Patient=c(names(bcma.low), 
+                                   names(bcma.med), 
+                                   names(bcma.hi)), 
+                       BCMA.level=factor(c(rep("low", length(bcma.low)), 
+                                    rep("medium", length(bcma.med)), 
+                                    rep("high", length(bcma.hi))),
+                                    levels=c("low", "medium", "high")
+                                    )
+                       )
+head(bcma.level)
+table(bcma.level$BCMA.level)
+
+dd.bcma <- merge(dd, bcma.level, by="Patient")
+head(dd.bcma)
+saveRDS(dd.bcma, file="~/Downloads/Rshiny_cell-markers/Rdata/boston_dd_bcma_levels.rds")
+
+
+### Save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/Boston_BCMA_boxplot_genes24_theme-bw.tiff", res = 300, width = 10, height = 7, units = "in")
+## specify how many groups need color
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(9, "Blues"))(ncols)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd.bcma$Genes.relevel <- factor(dd$Genes, levels=genes.order)
+## plot
+ggplot(dd.bcma, aes(x=Genes.relevel, y=Expression, fill=BCMA.level)) +
+  geom_boxplot(notch=TRUE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  ggtitle("Gene expression stratified by BCMA expression - Boston") + 
+  ylab("log2(Expression)") +
+  xlab("Genes")
+dev.off()
+
+```
+
+
+<!--
+Calculate the statistics - ANOVA followed by Tukey
+```{r}
+### ANOVA
+head(bcma.factor)
+genes20.arkansas.relapse <- genes20.arkansas[, which(arkansas.condition$Condition=="relapse")]
+dim(genes20.arkansas.relapse) # 24 255
+## make sure the following is true before running
+all.equal(colnames(genes20.arkansas.relapse), names(bcma.factor)) # TRUE
+markers <- rownames(genes20.arkansas.relapse)
+for(gene in markers) {
+  gene.expr <- genes20.arkansas.relapse[gene, ]
+  
+  # ANOVA
+  model <- aov(gene.expr ~ bcma.factor)
+  aov.pval <- summary(aov(model))[[1]][["Pr(>F)"]][[1]]
+  
+  # if significant, then Tukey
+  if(aov.pval <= 0.05) {
+    print(paste("yes", gene))
+    
+    tukey <- TukeyHSD(model)
+    
+    write.csv(tukey$bcma.factor, file=paste0("~/Downloads/Rshiny_cell-markers/Rtables/BCMA_arkansas_tukey/", gene, ".csv"))
+  }
+}
+
+## t-test for sanity check on Tukey values
+t.test(genes20.arkansas.relapse["GPRC5D", which(bcma.factor=="low")], genes20.arkansas.relapse["GPRC5D", which(bcma.factor=="high")])
+```
+-->

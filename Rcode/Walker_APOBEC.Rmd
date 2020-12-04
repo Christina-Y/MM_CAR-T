@@ -1,0 +1,210 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Load libraries
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyverse)
+library(ggpubr)
+```
+
+Load unlogged MMRF expression matrix
+```{r}
+mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm.rds")
+dim(mat)
+mat[1:5, 1:5]
+g <- c("APOBEC3A", "APOBEC3B")
+which(rownames(mat) %in% g)
+
+mat <- mat[which(rownames(mat) %in% g), ]
+```
+
+Create factor for APOBEC signature
+```{r}
+ann <- read.csv("~/Downloads/Walker_MM_GEP_dataset/MMRF RNAseq/MMRF_annotation_ONLY.csv")
+
+sig <- ann$Signature
+names(sig) <- ann$Patient
+
+intersect.pts <- intersect(names(sig), colnames(mat))
+sig <- sig[names(sig) %in% intersect.pts]
+
+table(sig)
+sum(is.na(sig)) # 0
+
+# saveRDS(sig, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/apobec_factor.rds")
+```
+
+
+Load factor
+```{r}
+group <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/factors/hrd_factors_all.rds")
+```
+
+Plotting
+```{r}
+### match up sample names
+all.equal(colnames(mat), names(group)) # FALSE
+## if FALSE and dimensions of mat is larger than group:
+if(!(all.equal(colnames(mat), names(group)) == TRUE)[1]) {
+  mat <- mat[, which(colnames(mat) %in% names(group))]
+  ## check again
+  all.equal(colnames(mat), names(group)) # TRUE
+}
+
+### wrangle data -- take log2 of expression matrix
+d <- data.frame(Genes=rownames(mat), log2(mat))
+dd <- d %>% gather(Factor, Expression, -Genes)
+head(dd)
+
+### Factor right now are sample names, so change to actual factor names
+for(fac in levels(group)) {
+  dd$Factor[which(dd$Factor %in% names(group)[group==fac])] <- fac
+}
+dd$Factor <- factor(dd$Factor)
+levels(dd$Factor)
+
+## Re-level the factor according to order given in group
+dd$Factor <- factor(dd$Factor, levels=levels(group))
+levels(dd$Factor)
+
+### Plotting
+filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/Brian_Walker/APOBEC_Signature_boxplot"
+legend.name <- ""
+plot.title <- ""
+
+pdf(file=paste0(filepath, ".pdf"), width=5, height=5)
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+# dd$Genes <- reorder(factor(dd$Genes), -dd$Expression) # re-order by expression
+### plot - CHANGE fill as needed
+ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  geom_boxplot(notch=FALSE, outlier.shape=TRUE, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  # ylim(-10, 20) +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.text.x=element_text(face="italic")) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  # theme(axis.title = element_text(size=12)) +
+  theme(legend.position="right") +
+  ggtitle(plot.title) +
+  ylab("log2(Expression)") +
+  xlab("") #+
+  #facet_grid(~dd$Upreg, scales="free", space="free")
+dev.off()
+```
+
+Calculate ratios
+```{r}
+### match up sample names
+all.equal(colnames(mat), names(group)) # FALSE
+## if FALSE and dimensions of mat is larger than group:
+if(!(all.equal(colnames(mat), names(group)) == TRUE)[1]) {
+  mat <- mat[, which(colnames(mat) %in% names(group))]
+  ## check again
+  all.equal(colnames(mat), names(group)) # TRUE
+}
+
+### wrangle data
+d <- data.frame(Genes=rownames(mat), mat)
+dd <- d %>% gather(Factor, Expression, -Genes)
+
+### Factor right now are sample names, so change to actual factor names
+for(fac in levels(group)) {
+  dd$Factor[which(dd$Factor %in% names(group)[group==fac])] <- fac
+}
+dd$Factor <- factor(dd$Factor)
+levels(dd$Factor)
+head(dd)
+
+### gather by gene and factor type to calculate mean or median expression (specify)
+dd.exp <- dd %>%
+  group_by(Genes, Factor) %>%
+  summarize(Mean_exp = mean(Expression),
+            Median_exp = median(Expression))
+dd.exp
+write.csv(dd.exp, "~/Downloads/Rshiny_cell-markers/Rplots/Brian_Walker/APOBEC_Signature_expression.csv")
+```
+
+Calculate 3A/3B ratios per patient and plot
+```{r}
+### match up sample names
+all.equal(colnames(mat), names(group)) # FALSE
+## if FALSE and dimensions of mat is larger than group:
+if(!(all.equal(colnames(mat), names(group)) == TRUE)[1]) {
+  mat <- mat[, which(colnames(mat) %in% names(group))]
+  ## check again
+  all.equal(colnames(mat), names(group)) # TRUE
+}
+
+### wrangle data
+d <- data.frame(Genes=rownames(mat), mat)
+dd <- d %>% gather(Factor, Expression, -Genes)
+
+### calculate ratio per patient, so before changing to factor names
+pt.3A <- dd %>%
+  group_by(Factor) %>%
+  filter(Genes=="APOBEC3A")
+head(pt.3A)
+
+pt.3B <- dd %>%
+  group_by(Factor) %>%
+  filter(Genes=="APOBEC3B")
+head(pt.3B)
+
+all.equal(pt.3A$Factor, pt.3B$Factor)
+
+ratio.pt <- tibble(Patient=pt.3A$Factor, Factor=pt.3A$Factor, Ratio=pt.3A$Expression / pt.3B$Expression)
+head(ratio.pt)
+
+### Factor right now are sample names, so change to actual factor names
+for(fac in levels(group)) {
+  ratio.pt$Factor[which(ratio.pt$Factor %in% names(group)[group==fac])] <- fac
+}
+ratio.pt$Factor <- factor(ratio.pt$Factor)
+levels(ratio.pt$Factor)
+head(ratio.pt)
+
+write.csv(ratio.pt, "~/Downloads/Rshiny_cell-markers/Rplots/Brian_Walker/APOBEC_HRD_ratio_per-pt.csv")
+
+### gather by gene and factor type to calculate mean or median expression (specify)
+ratio.group <- ratio.pt %>%
+  group_by(Factor) %>%
+  filter_all(all_vars(!is.infinite(.))) %>% # removes Inf values from dividing by 0
+  summarize(Mean_ratio = mean(Ratio),
+            Median_ratio = median(Ratio))
+ratio.group
+
+write.csv(ratio.group, "~/Downloads/Rshiny_cell-markers/Rplots/Brian_Walker/APOBEC_Signature_ratio.csv")
+
+### plot
+### Plotting
+filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/Brian_Walker/APOBEC_Signature-ratio_boxplot"
+legend.name <- ""
+plot.title <- ""
+
+pdf(file=paste0(filepath, ".pdf"), width=5, height=5)
+ncols <- ifelse(is.factor(ratio.pt$Factor), length(levels(ratio.pt$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+
+### plot - CHANGE fill as needed
+ggplot(ratio.pt, aes(x=Factor, y=Ratio, fill=Factor)) +
+  geom_boxplot(notch=FALSE, outlier.shape=TRUE, show.legend=FALSE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle=0, size=10)) +
+  theme(legend.position="right") +
+  ggtitle(plot.title) +
+  ylab("APOBEC3A/3B Ratio") +
+  xlab("")
+dev.off()
+
+wilcox.test(ratio.pt$Ratio ~ ratio.pt$Factor)
+t.test(ratio.pt$Ratio, as.numeric(ratio.pt$Factor))
+```

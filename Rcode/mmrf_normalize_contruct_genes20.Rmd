@@ -1,0 +1,158 @@
+---
+title: "Normalize MMRF"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Load MMRF gene expression counts
+```{r}
+### genes annotated, baseline patients
+mmrf.counts <- read.csv("~/Downloads/mmrf_WIP/mmrf_rnaseq/salmonE74cDNA_counts_baseline.csv", row.names=1)
+dim(mmrf.counts) # 25973   745
+mmrf.counts[1:5, 1:5]
+```
+
+MMRF classification is taken from Dr. Walker's progression annotation file
+```{r MMRF annotations}
+annotation <- read.csv("~/Downloads/MM GEP dataset/MMRF RNAseq/MMRF_annotation_ONLY.csv")
+dim(annotation) # 759 x 131
+head(annotation[, 1:6])
+
+### get intersection of patient names
+pat.intersect <- intersect(annotation$Patient, colnames(mmrf.counts))
+## gene expression table for mmrf
+mmrf.counts <- mmrf.counts[, pat.intersect]
+dim(mmrf.counts) # 25973   598
+head(mmrf.counts[, 1:6])
+## MMRF patient annotation
+annotation <- annotation[which(annotation$Patient %in% pat.intersect), ]
+## check if patient order is same
+all.equal(colnames(mmrf.counts), as.character(annotation$Patient)) # TRUE
+```
+
+Normalize with edgeR without specifying any groups
+```{r}
+library(edgeR)
+
+y <- DGEList(counts=mmrf.counts)
+y <- calcNormFactors(y)
+y <- estimateCommonDisp(y)
+y <- estimateTagwiseDisp(y)
+fit <- exactTest(y) # cannot because only one group
+
+### unlogged cpm matrix
+mmrf.tmm.unlogged <- cpm(y, normalized.lib.sizes=TRUE, log=FALSE)
+## change gene names here:
+rownames(mmrf.tmm.unlogged)[rownames(mmrf.tmm.unlogged)=="TNFRSF17"] <- "BCMA"
+rownames(mmrf.tmm.unlogged)[rownames(mmrf.tmm.unlogged)=="NCAM1"] <- "CD56"
+rownames(mmrf.tmm.unlogged)[rownames(mmrf.tmm.unlogged)=="SDC1"] <- "CD138"
+rownames(mmrf.tmm.unlogged)[rownames(mmrf.tmm.unlogged)=="TNFRSF13B"] <- "TACI"
+## save
+saveRDS(mmrf.tmm.unlogged, file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm.rds")
+# boxplot(log2(mmrf.tmm.unlogged[, 1:30]))
+# hist(mmrf.tmm.unlogged[3, ])
+# hist(mmrf.tmm[2, ])
+
+### logged cpm matrix
+mmrf.tmm <- cpm(y, normalized.lib.size=TRUE, log=TRUE)
+dim(mmrf.tmm) # 25973   598
+boxplot(mmrf.tmm[, 1:30]) # looks normalized
+## change gene names here:
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="TNFRSF17"] <- "BCMA"
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="NCAM1"] <- "CD56"
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="SDC1"] <- "CD138"
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="TNFRSF13B"] <- "TACI"
+## save
+saveRDS(mmrf.tmm, file="~/Downloads/Rshiny_cell-markers/Rdata/mmrf_log2_tmm_598-pats.rds")
+saveRDS(mmrf.tmm, file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+## load data
+mmrf.tmm <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm.rds")
+## change gene names here:
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="TNFRSF17"] <- "BCMA"
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="NCAM1"] <- "CD56"
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="SDC1"] <- "CD138"
+rownames(mmrf.tmm)[rownames(mmrf.tmm)=="TNFRSF13B"] <- "TACI"
+
+genes20 <- c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+             "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+             "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+             "ICAM1", "CD74", "CD81", "CD86", "CD200", 
+             "IGKC","FUT3", "CD70", "CD1D",
+             "NDUFA2", "POLR2L", "PPP2R1A") # actually 24 genes
+key <- read.csv("~/Downloads/Rshiny_cell-markers/Rdata/genes_probe_key2.csv", stringsAsFactors=FALSE)
+genes20 <- key$Genes
+
+# subset genes: get indices
+idxs <- sapply(genes20, function(x) grep(paste0("^", x, "$"), rownames(mmrf.tmm)))
+genes20.mmrf <- mmrf.tmm[idxs, ]
+genes20.mmrf[1:5, 1:5]
+# # change gene names here:
+# rownames(genes20.mmrf)[rownames(genes20.mmrf)=="TNFRSF17"] <- "BCMA"
+# rownames(genes20.mmrf)[rownames(genes20.mmrf)=="NCAM1"] <- "CD56"
+# rownames(genes20.mmrf)[rownames(genes20.mmrf)=="SDC1"] <- "CD138"
+# rownames(genes20.mmrf)[rownames(genes20.mmrf)=="TNFRSF13B"] <- "TACI"
+# save
+saveRDS(genes20.mmrf, file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+saveRDS(genes20.mmrf, file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_select-genes_tmm_37.rds")
+
+genes20.low <- c("TNFRSF17", "CD38", "NCAM1", "SDC1", "TNFRSF13B", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D",
+                 "GUCY2F") # add GUCY2F as low-expression control (retina)
+# subset genes: get indices
+idxs <- sapply(genes20.low, function(x) grep(paste0("^", x, "$"), rownames(mmrf.tmm)))
+genes22.mmrf <- mmrf.tmm[idxs, ]
+genes22.mmrf[1:5, 1:5]
+# change gene names here:
+rownames(genes22.mmrf)[rownames(genes22.mmrf)=="TNFRSF17"] <- "BCMA"
+rownames(genes22.mmrf)[rownames(genes22.mmrf)=="NCAM1"] <- "CD56"
+rownames(genes22.mmrf)[rownames(genes22.mmrf)=="SDC1"] <- "CD138"
+rownames(genes22.mmrf)[rownames(genes22.mmrf)=="TNFRSF13B"] <- "TACI"
+# save
+saveRDS(genes22.mmrf, file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes25_mmrf.rds")
+
+# # 21 genes of interest + other low-expressing reference genes
+# FCRL5 is gene of interest
+genes20.ref <- c("TNFRSF17", "CD38", "NCAM1", "SDC1", "TNFRSF13B", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D", "FCRL5") 
+# genes20.ref <- c("TNFRSF17", "CD38", "NCAM1", "SDC1", "TNFRSF13B", 
+#              "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+#              "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+#              "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+#              "ITGAM", "GUCY2F", "CITED1")
+# # subset genes: get indices
+idxs <- sapply(genes20.ref, function(x) grep(paste0("^", x, "$"), rownames(mmrf.tmm)))
+# #! ref is generated by gse_data_processing
+# idxs <- sapply(ref, function(x) grep(paste0("^", x, "$"), rownames(mmrf.tmm)))
+# 
+genes24.mmrf <- mmrf.tmm[idxs, ]
+# # change gene names here:
+rownames(genes24.mmrf)[rownames(genes24.mmrf)=="TNFRSF17"] <- "BCMA"
+rownames(genes24.mmrf)[rownames(genes24.mmrf)=="NCAM1"] <- "CD56"
+rownames(genes24.mmrf)[rownames(genes24.mmrf)=="SDC1"] <- "CD138"
+rownames(genes22.mmrf)[rownames(genes22.mmrf)=="TNFRSF13B"] <- "TACI"
+saveRDS(genes24.mmrf, file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes25_mmrf_2.rds")
+# 
+# genes28.mmrf <- mmrf.tmm[idxs, ]
+# # change gene names here:
+# rownames(genes28.mmrf)[rownames(genes28.mmrf)=="TNFRSF17"] <- "BCMA"
+# rownames(genes28.mmrf)[rownames(genes28.mmrf)=="NCAM1"] <- "CD56"
+# rownames(genes28.mmrf)[rownames(genes28.mmrf)=="SDC1"] <- "CD138"
+# saveRDS(genes28.mmrf, file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes28_mmrf.rds")
+# 
+# genes29.mmrf <- mmrf.tmm[idxs, ]
+# # change gene names here:
+# rownames(genes29.mmrf)[rownames(genes29.mmrf)=="TNFRSF17"] <- "BCMA"
+# rownames(genes29.mmrf)[rownames(genes29.mmrf)=="NCAM1"] <- "CD56"
+# rownames(genes29.mmrf)[rownames(genes29.mmrf)=="SDC1"] <- "CD138"
+# saveRDS(genes29.mmrf, file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes29_mmrf.rds")
+# 
+
+
+```

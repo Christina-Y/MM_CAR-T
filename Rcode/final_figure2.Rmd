@@ -1,0 +1,370 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Make figures for gene co-expression analysis 
+
+```{r libraries}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyverse)
+library(gplots)
+library(reshape2)
+```
+
+### Figure 2A: workflow
+Components/steps:
+- RNA-seq expression heatmap
+- Spearman pairwise correlation
+- Co-expression network 
+- Co-expression gene module detection
+- Module eigengene
+- Eigengene correlation with target genes
+- Select top 5% of target-module correlation coefficients
+- Enrichment analysis with enrichR
+```{r}
+### expression heatmap
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_annot_log2.rds")
+dim(mat)
+mat[1:5, 1:5]
+
+ncols <- 10
+mycolors <- colorRampPalette(brewer.pal(5, "RdBu"))(ncols)
+set.seed(9876543) # 9876543*, 123123
+heatmap(mat[sample(nrow(mat), 70), sample(ncol(mat), 50)], col=mycolors,
+        Colv=TRUE, Rowv=TRUE, scale="col", labRow=FALSE, labCol=FALSE,
+        margins=c(2,2), xlab="MM patients", ylab="Genes")
+###################
+
+### spearman correlation
+scatter.smooth(mat[sample(nrow(mat), 1), ], mat[sample(nrow(mat), 1), ])
+scatter.smooth(mat[4, ], mat[5, ], span=1, xlab="Gene 1", ylab="Gene 2")
+plot(mat[4, ], mat[5, ])
+cor(mat[4, ], mat[5, ], method="spearman")
+
+### simulated data
+gene1 <- rnorm(n=500, mean=1, sd=2)
+gene2 <- jitter(gene1, factor=1, amount=10)
+scatter.smooth(gene1, gene2, span=5, xlab="Gene 1", ylab="Gene 2")
+cor(gene1, gene2)
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig2/gene_coexpression.tiff", res = 300, width = 5, height = 6, units = "in")
+scatter.smooth(gene1, gene2, span=5, xlab="Gene 1", ylab="Gene 2")
+dev.off()
+###################
+
+### co-expression network - calculate a 10-gene correlation matrix
+library(reshape2)
+library(igraph)
+
+set.seed(11) # 123, 123456, 11*
+temp.mat <- mat[sample(nrow(mat), 10), ]
+# temp.mat.copy <- temp.mat ## in case accidentally override temp.mat
+## change gene names to generic numbers
+rownames(temp.mat) <- c(1:10)
+temp.cor <- abs(cor(t(temp.mat)))
+temp.cor[upper.tri(temp.cor, diag=T)] <- NA
+melt.cor <- melt(temp.cor, na.rm=T)
+
+ggplot(melt.cor, aes(Var1, Var2)) +
+  geom_tile(aes(fill=value)) +
+  scale_fill_continuous(limits=c(0, 1), 
+                        na.value="white", type = "viridis")
+# mycols <- colorRampPalette(c("steelblue", "yellow", "orange"))(10)
+
+## plot full network
+melt.cor$value <- melt.cor$value/max(melt.cor$value) # rescale from 0-1
+summary(melt.cor$value)
+net <- graph_from_data_frame(melt.cor, directed=FALSE)
+# Set edge width based on weight:
+E(net)$width <- E(net)$value * 3.5
+plot(net)
+
+## reduce connections:
+melt.keep <- melt.cor[melt.cor$value > 0.7, ]
+net2 <- graph_from_data_frame(melt.keep, directed=FALSE)
+E(net2)$width <- E(net2)$value * 3.5
+plot(net2)
+###################
+
+
+### eigengene plot
+modules <- readRDS("~/Documents/osu/Perna_lab/network_mining/mmrf/rds/gamma60_log2-mat_spearman.rds")
+eig.mat <- modules@eigengene.matrix
+eig.mat[1:5, 1:5]
+names(eig.mat) <- c(1:598)
+one.eig <- eig.mat[1, 1:100] # can do barplot with this
+eig.mat <- cbind(Modules=c(1:10), eig.mat[11:20, 1:30]) # sample modules and pts
+
+
+eig.df <- gather(eig.mat, Patients, Eigenvalue, -Modules)
+head(eig.df, 10)
+eig.df$Modules <- factor(eig.df$Modules)
+# eig.df$Patients <- factor(eig.df$Patients)
+# levels(eig.df$Patients) <- factor(1:598)
+# head(eig.df)
+# head(sort(eig.df$Mods))
+# eig.df <- eig.df[order(eig.df$Mods), ]
+# eig.sample <- eig.df[c(1:50, 599:648, 1197:1246), ]
+
+
+### plot lines
+mycols <- c("darkorange2", rep("gray40", 9))
+mysize <- c(1.5, rep(0.7, 9))
+ggplot(data = eig.df, aes(x=Patients, y=Eigenvalue, size=Modules)) + 
+  geom_line(aes(group=Modules, color=Modules)) +
+  scale_color_manual(values=mycols) +
+  theme_pubr() +
+  scale_size_manual(values = mysize ) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Patients")
+
+### melt then barpot
+one.eig.melt <- melt(one.eig)
+head(one.eig.melt)
+
+
+g <- ggplot(data=one.eig.melt, aes(x=variable, y=value)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  theme_pubr() +
+  theme(axis.text.x = element_blank()) +
+  xlab("Patients")
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig2/one_eigengene.tiff", res = 300, width = 6, height = 5, units = "in")
+g
+dev.off()
+
+ggplot(data=one.eig.melt, aes(x=variable, y=value, group=1)) +
+  geom_line() +
+  theme_pubr() +
+  theme(axis.text.x = element_blank())
+```
+
+
+### Figure 2B: module selection/filtering 
+Components:
+- All modules from lmQCM: 51
+- Modules that are hightly correlated with target genes: 30
+- Modules that are correlated with a single target: 13
+  - Modules with biological/pathway enrichment: 7
+    - module 27 is interesting: interferon signaling (BST2 is correlated)
+  - Modules with cytoband enrichment: 7
+    - module 23 is significantly enriched with genes from chromosome 16 and correlated gene ICAM1 is significantly upregulated in t(14;16) vs t(11;14)
+```{r}
+### eigengene-target correlations
+eig.target.cor <- readRDS("~/Documents/osu/Perna_lab/network_mining/mmrf/rds/eigengene_targets_corr.rds")
+rownames(eig.target.cor) <- 1:nrow(eig.target.cor)
+
+ncols <- 5
+mycolors <- colorRampPalette(brewer.pal(6, "Oranges"))(ncols)
+
+### full correlation heatmap
+heatmap.2(eig.target.cor, Colv=FALSE, Rowv=FALSE, col=mycolors, ylab="Modules",
+          scale="none", trace="none", 
+          density.info="none", key.xlab="abs(SCC)", key.title=NA,
+          lwid=c(3,4), lhei=c(2,7))
+          # lwid=c(1,2), lhei=c(1,7))
+
+###> correlation heatmap after applying 5% cutoff
+cutoff <- quantile(eig.target.cor, 0.95)
+top.cor.binary <- eig.target.cor > cutoff
+top.cor <- eig.target.cor * top.cor.binary
+## remove modules (rows) that are zero
+top.cor.filter <- top.cor[!rowSums(top.cor)==0, ]
+## change values with zero to NA to make cells white in heatmap
+top.cor.filter[top.cor.filter==0] <- NA
+
+###> plot, toggle between top.cor and top.cor.filter
+heatmap.2(top.cor, Colv=FALSE, Rowv=FALSE, col=mycolors, ylab="Modules",
+          scale="none", trace="none", 
+          density.info="none", key.xlab="abs(SCC)", key.title=NA,
+          # na.color="grey",
+          lwid=c(3,4), lhei=c(2,7))
+
+### use ggplot to draw vertical color gradient
+df <- melt(top.cor.filter)
+head(df)
+ggplot(df, aes(x=Var2, y=Var1)) +
+  geom_tile(aes(fill=value)) +
+  scale_fill_gradientn(colors=mycolors, name="abs(SCC)") +
+  coord_fixed()
+
+### plot the 13 modules that are correlated with a single target
+mods13 <- c(5, 9, 13, 14, 15, 20, 22, 23, 27, 37, 44, 47, 48)
+
+top.cor.13 <- top.cor[which(rownames(top.cor) %in% mods13), ]
+###> plot
+## specify the breaks in the color range
+heatmap.2(top.cor.13, Colv=FALSE, Rowv=FALSE, col=mycolors, ylab="Modules",
+          scale="none", trace="none", 
+          density.info="none", key.xlab="abs(SCC)", key.title=NA,
+          # na.color="grey",
+          lwid=c(2,4), lhei=c(3,2),
+          breaks=c(0, 0.12, 0.25, 0.39, 0.51, 0.62))
+```
+    
+### Figure 2C: illustrate three types of target-module combination
+- single target to single module
+- single target to multiple modules
+- multiple targets to single module
+```{r}
+
+```
+
+### Figure 2D: enrichment results
+- barplot with GO/pathway term and length is determined by p-value
+- left side of barplot is the module associated with the enrichment term
+- right side of barplot are the target genes associated with the enrichment term
+```{r}
+#### pathways ####
+enriched.pathways <- read.csv("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/bp_pathway_7-modules.csv", stringsAsFactors=FALSE)
+
+enriched.pathways <- read.csv("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/corr_30modules_sig_cytoband-reactome-tfs_ordered-for-barplots.csv", stringsAsFactors=FALSE)
+
+str(enriched.pathways)
+
+####### Part 1
+### plot Reactome first - barplot
+names(enriched.pathways)
+df <- enriched.pathways[, c("Module", "Target", "Reactome", "Reactome_pval")]
+head(df)
+
+## change escaped \\n into newline character:
+df$Reactome <- gsub("\\\\n", "\\\n", df$Reactome)
+
+## remove NAs
+df <- df[!is.na(df$Reactome), ]
+df$Reactome_pval[which(df$Reactome_pval==6.77e-130)] <- 6.77e-21 # change super sig value into something smaller
+df$log_pval <- -log10(df$Reactome_pval) # higher number is more sig
+## reorder reactome terms based on p-value
+df$Reactome <- factor(df$Reactome, levels=c(df$Reactome[order(df$log_pval, decreasing=FALSE)]))
+
+## barplot
+p <- ggplot(df, aes(x=Reactome, y=log_pval)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  # scale_fill_gradient(low="royalblue", high="orangered3") + 
+  theme_pubr() +
+  coord_flip()
+pdf(file="~/Downloads/Rshiny_cell-markers/Rplots/final_fig2/reactome_v2_change1.pdf", width=10, height=6)
+ggpar(p, xlab="", ylab="-log10(p-val)", legend="none", x.text.angle=0) # change angle to 0 if coord_flip()
+dev.off()
+
+####### Part 2
+### plot cytoband barplot
+names(enriched.pathways)
+df <- enriched.pathways[, c("Module", "Target", "Cytoband", "Cytoband_pval", "Cytoband_order")]
+
+## remove NAs
+df <- df[!is.na(df$Cytoband), ]
+df$log_pval <- -log10(df$Cytoband_pval) # higher number is more sig
+
+## combine module and cytoband cols
+df$Mod.Term <- interaction(df$Module, df$Cytoband)
+# order by cytoband order
+df$Mod.Term <- factor(df$Mod.Term, levels=as.character(df$Mod.Term[order(df$Cytoband_order, decreasing=TRUE)]))
+# df$Mod.Term <- factor(df$Mod.Term, levels=as.character(df$Mod.Term[order(df$Module, decreasing=TRUE)]))
+
+## reorder terms based on p-value
+# df$Cytoband <- factor(df$Cytoband, levels=c(df$Cytoband[order(df$log_pval, decreasing=FALSE)]))
+#> error: factor level [18] is duplicated
+
+## barplot
+p <- ggplot(df, aes(x=Mod.Term, y=log_pval)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  # scale_fill_gradient(low="royalblue", high="orangered3") + 
+  theme_pubr() +
+  coord_flip()
+pdf(file="~/Downloads/Rshiny_cell-markers/Rplots/final_fig2/cytoband_v3_ordered.pdf", width=7, height=6)
+ggpar(p, xlab="", ylab="-log10(p-val)", legend="none", x.text.angle=0) # change angle to 0 if coord_flip()
+dev.off()
+
+####### Part 3
+### plot TF barplot
+names(enriched.pathways)
+df <- enriched.pathways[, c("Module", "Target", "TF", "TF_pval", "TF_order")]
+
+## remove NAs
+df <- df[!is.na(df$TF), ]
+df$log_pval <- -log10(df$TF_pval) # higher number is more sig
+
+## combine module and tf cols
+df$Mod.Term <- interaction(df$Module, df$TF)
+
+# order by tf_order
+df$Mod.Term <- factor(df$Mod.Term, levels=as.character(df$Mod.Term[order(df$TF_order, decreasing=TRUE)]))
+
+# df$Mod.Term <- factor(df$Mod.Term, levels=as.character(df$Mod.Term[order(df$Module, decreasing=TRUE)]))
+## reorder terms based on p-value
+# df$TF <- factor(df$TF, levels=c(df$TF[order(df$log_pval, decreasing=FALSE)]))
+#> error: factor level [18] is duplicated
+
+## barplot
+p <- ggplot(df, aes(x=Mod.Term, y=log_pval)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  # scale_fill_gradient(low="royalblue", high="orangered3") + 
+  theme_pubr() +
+  coord_flip()
+pdf(file="~/Downloads/Rshiny_cell-markers/Rplots/final_fig2/tf_v3_ordered.pdf", width=7, height=4)
+ggpar(p, xlab="", ylab="-log10(p-val)", legend="none", x.text.angle=0) # change angle to 0 if coord_flip()
+dev.off()
+
+
+
+########################### old code
+### plot BP barplot next
+names(enriched.pathways)
+df2 <- enriched.pathways[, c("Module", "Gene", "GO_BP",
+                            "GO_ngenes", "GO_pval")]
+head(df2)
+
+## change escaped \\n into newline character:
+df2$GO_BP <- gsub("\\\\n", "\\\n", df2$GO_BP)
+
+## remove NAs
+df2 <- df2[!is.na(df2$GO_BP), ]
+## transform p-vals
+df2$log_pval <- -log10(df2$GO_pval) # higher number is more sig
+## reorder terms based on p-value
+df2$GO_BP <- factor(df2$GO_BP, levels=c(df2$GO_BP[order(df2$log_pval, decreasing=FALSE)]))
+
+
+## barplot
+p <- ggplot(df2, aes(x=GO_BP, y=GO_ngenes, fill=NULL)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  # scale_fill_gradient(low="royalblue", high="orangered3") + 
+  theme_pubr() +
+  coord_flip()
+ggpar(p, xlab="", ylab="-log(p-val)", legend="right", x.text.angle=0) # change angle to 0 if coord_flip()  
+#############################
+
+#### chromosomal locations ####
+enriched.chrom <- read.csv("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/chrom_loc_7-modules.csv", stringsAsFactors=FALSE)
+enriched.chrom
+
+### plot cytobands - barplot
+names(enriched.chrom)
+# df <- enriched.chrom[, c("Module", "Gene", "Chrom_hg19",
+#                             "Chrom_hg19_ngenes", "Chrom_hg19_pval")]
+df <- enriched.chrom[, c("Module", "Gene", "Cytoband",
+                            "Cytoband_ngenes", "Cytoband_pval")]
+df
+
+## remove NAs
+df <- df[!is.na(df$Cytoband), ]
+df$log_pval <- -log10(df$Cytoband_pval) # higher number is more sig
+## reorder terms based on p-value (make sure import stringAsFactors=FALSE)
+df$Cytoband <- factor(df$Cytoband, levels=c(df$Cytoband[order(df$log_pval, decreasing=FALSE)]))
+
+## barplot
+p <- ggplot(df, aes(x=Cytoband, y=log_pval)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  # scale_fill_gradient(low="royalblue", high="orangered3") + 
+  theme_pubr() +
+  coord_flip()
+ggpar(p, xlab="", ylab="-log10(p-val)", legend="none", x.text.angle=0) # change angle to 0 if coord_flip()
+```

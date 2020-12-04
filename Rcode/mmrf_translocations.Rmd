@@ -1,0 +1,201 @@
+---
+title: "Cell markers edgeR"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(edgeR)
+library(FSA) # Dunnett test
+library(tidyr)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+<!--
+Load data
+```{r}
+### genes annotated, baseline patients
+mmrf.counts <- read.csv("~/Downloads/mmrf_WIP/mmrf_rnaseq/salmonE74cDNA_counts_baseline.csv", row.names=1)
+dim(mmrf.counts) # 25973   745
+mmrf.counts[1:5, 1:5]
+```
+
+MMRF classification is taken from Dr. Walker's progression annotation file
+```{r MMRF annotations}
+annotation <- read.csv("~/Downloads/MM GEP dataset/MMRF RNAseq/MMRF_annotation_ONLY.csv")
+dim(annotation) # 759 x 131
+head(annotation[, 1:6])
+
+### get intersection of patient names
+pat.intersect <- intersect(annotation$Patient, colnames(mmrf.counts))
+## gene expression table for mmrf
+mmrf.counts <- mmrf.counts[, pat.intersect]
+dim(mmrf.counts) # 25973   598
+head(mmrf.counts[, 1:6])
+## MMRF patient annotation
+annotation <- annotation[which(annotation$Patient %in% pat.intersect), ]
+dim(annotation) # 598 131
+## check if patient order is same
+all.equal(colnames(mmrf.counts), as.character(annotation$Patient)) # TRUE
+saveRDS(annotation, file="~/Downloads/Rshiny_cell-markers/Rdata/annotation_598-pats.rds")
+```
+
+Call edgeR for differential expression analysis.
+Must calculate new DGE for each feature. 
+```{r}
+
+```
+
+
+Try analysis with TPM values
+```{r TPM - setting up}
+tpm.surv <- readRDS("~/Downloads/Rshiny_cell-markers/salmon.tpm.log2.survival.rds")
+dim(tpm.surv) # 647 17506
+tpm.surv[1:5, 1:5]
+tpm <- tpm.surv[-c(1:4)] # remove survival info
+tpm[1:5, 1:5]
+
+### get intersection of patient names
+pat.intersect <- intersect(annotation$Patient, rownames(tpm)) # 582
+## gene expression table for mmrf
+tpm <- tpm[pat.intersect, ]
+dim(tpm) # 582 17502
+head(tpm[, 1:6])
+## MMRF patient annotation
+annotation <- annotation[which(annotation$Patient %in% pat.intersect), ]
+## check if patient order is same
+all.equal(rownames(tpm), as.character(annotation$Patient)) # TRUE
+
+genes21 <- c("TNFRSF17", "CD38", "NCAM1", "SDC1", "TNFRSF13B", 
+             "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+             "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+             "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC")
+
+# need to subset genes: get indices
+idxs <- sapply(genes21, function(x) grep(paste0("^", x, "$"), colnames(tpm)))
+
+tpm.genes21 <- tpm[, idxs] # 582 x 21
+tpm.genes21[1:5, 1:5]
+
+### change gene names
+## change the factor names for genes
+colnames(tpm.genes21)[colnames(tpm.genes21)=="TNFRSF17"] <- "BCMA"
+colnames(tpm.genes21)[colnames(tpm.genes21)=="NCAM1"] <- "CD56"
+colnames(tpm.genes21)[colnames(tpm.genes21)=="SDC1"] <- "CD138"
+tpm.genes21[1:5, 1:5]
+```
+-->
+
+```{r CPM - translocations}
+genes20.mmrf <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+dim(genes20.mmrf) # 24 x 598
+str(genes20.mmrf)
+
+translocation <- annotation$Translocation_Summary
+names(translocation) <- annotation$Patient
+translocation[which(translocation=="t(6;14)")] <- NA
+translocation[which(translocation=="t(8;14)")] <- NA
+translocation <- droplevels(translocation)
+levels(translocation)
+table(translocation)
+head(translocation)
+
+### check if patient name order is same
+all.equal(colnames(genes20.mmrf), names(translocation))
+genes20.mmrf.subset <- genes20.mmrf[, !is.na(translocation)]
+translocation.subset <- translocation[!is.na(translocation)]
+levels(translocation.subset)
+saveRDS(translocation.subset, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+
+### ANOVA
+# translocation.DE <- NULL
+markers <- rownames(genes20.mmrf.subset)
+for(gene in markers) {
+  gene.expr <- genes20.mmrf.subset[gene, ]
+  
+  # ANOVA
+  model <- aov(gene.expr ~ translocation.subset)
+  aov.pval <- summary(aov(model))[[1]][["Pr(>F)"]][[1]]
+  
+  # if significant, then Tukey
+  if(aov.pval <= 0.05) {
+    print(paste("yes", gene))
+    
+    tukey <- TukeyHSD(model)
+    
+    write.csv(tukey$translocation.subset, file=paste0("~/Downloads/Rshiny_cell-markers/Rtables/translocations_tukey/", gene, ".csv"))
+  }
+} ## 18 sig ANOVA
+
+table(translocation.subset)
+# t(11;14) t(14;16) t(14;20)  t(4;14) 
+#      117       26       10       78 
+
+### make boxplot
+table(translocation.subset)
+genes20.mmrf.subset[1:5, 1:5]
+
+d <- data.frame(Genes=rownames(genes20.mmrf.subset),
+                genes20.mmrf.subset)
+
+dd <- gather(d, key="Translocation", value="Expression", -Genes)
+head(dd)
+
+dd$Translocation[which(dd$Translocation %in% names(translocation.subset)[translocation.subset=="t(11;14)"])] <- "t(11;14)"
+dd$Translocation[which(dd$Translocation %in% names(translocation.subset)[translocation.subset=="t(14;16)"])] <- "t(14;16)"
+dd$Translocation[which(dd$Translocation %in% names(translocation.subset)[translocation.subset=="t(14;20)"])] <- "t(14;20)"
+dd$Translocation[which(dd$Translocation %in% names(translocation.subset)[translocation.subset=="t(4;14)"])] <- "t(4;14)"
+
+table(dd$Translocation)
+
+### Save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/Translocation_boxplot.tiff", res = 300, width = 10, height = 7, units = "in")
+## specify how many groups need color
+ncols <- 4
+mycolors <- colorRampPalette(brewer.pal(9, "Blues"))(ncols)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd$Genes.relevel <- factor(dd$Genes, levels=genes.order)
+## plot
+ggplot(dd, aes(x=Genes.relevel, y=Expression, fill=Translocation)) +
+  geom_boxplot(notch=TRUE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  ggtitle("Gene expression stratified by Translocation") + 
+  ylab("log2(Expression)") +
+  xlab("Genes")
+dev.off()
+```
+
+<!--
+```{r}
+
+### non-parametric ANOVA (Kruskal-Wallis)
+markers <- colnames(tpm.genes21)
+gene.mat <- t(tpm.genes21)
+## check if patient order is same
+all.equal(colnames(gene.mat), as.character(annotation$Patient)) # TRUE
+translocation.kruskal <- NULL
+for(gene in markers) {
+  temp <- aov(gene.mat[gene, ] ~ translocation)
+  
+  translocation.kruskal <- rbind(translocation.kruskal, c(gene, temp$p.value))
+}
+translocation.kruskal <- data.frame(Gene=as.character(translocation.kruskal[, 1]),
+                           Kruskal_pval=as.numeric(translocation.kruskal[, 2]))
+translocation.kruskal$Kruskal_fdr <- p.adjust(translocation.kruskal$Kruskal_pval, method="fdr")
+translocation.kruskal
+
+## post-hoc Dunn's test on those genes that have sig p-val
+sig.genes <- as.character(translocation.kruskal$Gene[which(translocation.kruskal$Kruskal_pval < 0.05)])
+
+for(gene in sig.genes) {
+  dunnTest(x=gene.mat[gene, ],
+           g=translocation,
+           method="bh", rmc=TRUE)
+}
+```
+-->

@@ -1,0 +1,37 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Hyperdiploidy vs non-hyperdiploidy - make factor
+```{r}
+genes20.mmrf <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf.rds")
+annotation <- read.csv("~/Downloads/Walker_MM_GEP_dataset/MMRF RNAseq/MMRF_annotation_ONLY.csv")
+hrd <- annotation$HRD
+names(hrd) <- annotation$Patient
+
+intersect.pts <- intersect(names(hrd), colnames(genes20.mmrf))
+hrd <- hrd[names(hrd) %in% intersect.pts]
+
+table(hrd)
+sum(is.na(hrd)) # 53, remove NAs
+hrd <- hrd[!is.na(hrd)]
+length(hrd) # 598 --> 545 after removing NAs
+levels(hrd) ## This will show the levels of x
+levels(hrd)[which(levels(hrd)=="nHRD")] <- "NHRD"
+
+# ###! Important: remove patients that have translocation info
+# transloc <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+# 
+# head(names(transloc))
+# 
+# `%notin%` <- Negate(`%in%`)
+# 
+# hrd <- hrd[which(names(hrd) %notin% names(transloc))]
+# head(hrd)
+# length(hrd)
+
+saveRDS(hrd, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/hrd_factors_all.rds")
+```

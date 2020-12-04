@@ -1,0 +1,192 @@
+---
+title: "Gene co-expression"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+```
+
+Run gene pair correlation calculations in MMRF geneset
+```{r}
+### read in factors
+group <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+head(group)
+
+### read in expression matrix
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf.rds")
+head(mat[, 1:5]) # genes in rows
+
+### set up to get module genes:
+## read in modules
+modules <- readRDS("~/Documents/osu/Perna_lab/network_mining/mmrf/rds/gamma60_log2-mat_spearman.rds")
+## full mmrf expression matrix
+mat <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+## make matrix
+# all patients
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3", "FGFR3", "WHSC1")), ]
+# all translocation patients
+mat0 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3")), which(colnames(mat) %in% names(group))]
+# t(11;14) patients
+mat1 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3")), which(colnames(mat) %in% names(group)[group=="t(11;14)"])]
+# t(14;16) patients
+mat2 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3")), which(colnames(mat) %in% names(group)[group=="t(14;16)"])]
+# t(14;20) patients
+mat3 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3")), which(colnames(mat) %in% names(group)[group=="t(14;20)"])]
+# t(4;14) patients
+mat4 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3")), which(colnames(mat) %in% names(group)[group=="t(4;14)"])]
+
+### subset expression matrix based on factors
+head(group)
+# mat <- mat[, which(colnames(mat) %in% group$Patient[group$Condition=="high"])]
+# mat <- mat[, which(colnames(mat) %in% names(group)[group=="t(11;14)"])]
+
+####### module 20, BCMA
+## full mmrf expression matrix
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+## make matrix
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), ]
+# all translocation patients
+mat0 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), which(colnames(mat) %in% names(group))]
+# t(11;14) patients
+mat1 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), which(colnames(mat) %in% names(group)[group=="t(11;14)"])]
+# t(14;16) patients
+mat2 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), which(colnames(mat) %in% names(group)[group=="t(14;16)"])]
+# t(14;20) patients
+mat3 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), which(colnames(mat) %in% names(group)[group=="t(14;20)"])]
+# t(4;14) patients
+mat4 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), which(colnames(mat) %in% names(group)[group=="t(4;14)"])]
+
+####### module 24, BCMA, FUT3, ICAM1
+## full mmrf expression matrix
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+## make matrix
+# all translocation patients
+mat0 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[24]], "ICAM1")), which(colnames(mat) %in% names(group))]
+# t(11;14) patients
+mat1 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[24]], "ICAM1")), which(colnames(mat) %in% names(group)[group=="t(11;14)"])]
+# t(14;16) patients
+mat2 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[24]], "ICAM1")), which(colnames(mat) %in% names(group)[group=="t(14;16)"])]
+# t(14;20) patients
+mat3 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[24]], "ICAM1")), which(colnames(mat) %in% names(group)[group=="t(14;20)"])]
+# t(4;14) patients
+mat4 <- mat[which(rownames(mat) %in% c(modules@clusters.names[[24]], "ICAM1")), which(colnames(mat) %in% names(group)[group=="t(4;14)"])]
+
+
+########################################
+### are the data normally distributed?
+qqnorm(mat["BCMA", ])
+
+### what's the correlation?
+corr <- cor(t(mat))
+
+sort(corr[, "BCMA"])
+sort(corr[, "ITGB7"])
+sort(corr[, "FUT3"])
+
+plot(mat["BCMA", ], mat["CD200", ])
+cor(mat["BCMA", ], mat["ITGB7", ]) # correlation coefficient = -0.127
+cor.test(mat["BCMA", ], mat["ITGB7", ], method="pearson")
+
+### all translocation pts
+mat0 <- mat[which(rownames(mat) %in% c("BCMA", "FGFR3", "WHSC1", "SLAMF7", "CD138", "CD200", "CD56", "FUT3", "IGF1R", "CD70", "BCR")), which(colnames(mat) %in% names(group))]
+cor.test(mat0["BCR", ], mat0["FGFR3", ], method="pearson")
+cor.test(mat0["BCR", ], mat0["WHSC1", ], method="pearson")
+
+### all pts
+mat0 <- mat[which(rownames(mat) %in% c("IGHV1-18", "CD19")), ]
+head(mat0)
+plot(mat0["IGHV1-18", ], mat0["CD19", ])
+mean(mat0["CD19", ])
+mean(mat0["IGHV1-18", ])
+
+mat0 <- mat[which(rownames(mat) %in% c("EXOSC4", "EXOSC3", "EXOSC5")), ]
+plot(mat0["EXOSC4", ], mat0["EXOSC5", ])
+cor.test(mat0["EXOSC4", ], mat0["EXOSC5", ])
+
+##########
+### what is ICAM correlation with all genes in each translocation type?
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+t.11.14
+t.14.16
+t.14.20
+t.4.14
+```
+
+Calculate average correlation within module and for target
+```{r}
+### initialize under mat0
+mod24.bcma <- tibble(BMCA=mean(key.module.scc["BCMA", ]), Module=mean(key.module.scc))
+mod24.fut3 <- tibble(FUT3=mean(key.module.scc["FUT3", ]), Module=mean(key.module.scc))
+mod24.icam1 <- tibble(ICAM1=mean(key.module.scc["ICAM1", ]), Module=mean(key.module.scc))
+
+key.module <- mat4
+key.module.scc <- abs(stats::cor(t(key.module), method="spearman"))
+# mean(key.module.scc["BCMA", ])
+# mean(key.module.scc)
+
+## add to tibble for mat1-4
+mod24.icam1 <- rbind(mod24.icam1, c(mean(key.module.scc["ICAM1", ]), Module=mean(key.module.scc)))
+
+mod24 <- cbind(mod24.bcma, mod24.fut3, mod24.icam1)
+rownames(mod24) <- c("all-trans", "t(11;14)", "t(14;16)", "t(14;20)", "t(4;14)")
+mod24
+write.csv(mod24, "~/Downloads/Rshiny_cell-markers/Rtables/lmQCM_modules/correlations/module24_correlations.csv")
+
+# key.module <- mat0
+# key.module.scc <- abs(stats::cor(t(key.module), method="spearman"))
+# mean(key.module.scc["FUT3", ])
+# mean(key.module.scc)
+```
+
+
+Correlation heatmap
+```{r}
+key.module <- mat4
+## provide gene order from make_boxplots
+# genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+# key.module <- key.module[levels(genes.order), ]
+# genes.order <- c("ANGEL1", "CPSF2", "ENTPD5", "L2HGDH", "MLH3", "NEK9", "SLC39A9", "SYNJ2BP", "TRMT5", "WDR89", "FUT3") # "FGFR3", "WHSC1", 
+genes.order <- c(modules@clusters.names[[24]], "BCMA")
+key.module <- key.module[genes.order, ]
+
+### calculate PCC, taking absolute value of correlation
+# key.module.pcc <- abs(stats::cor(t(key.module), method="pearson"))
+key.module.scc <- abs(stats::cor(t(key.module), method="spearman"))
+# mean(key.module.scc["FUT3", ])
+mean(key.module.scc["BCMA", ])
+
+### keep upper triangle
+# key.module.pcc[upper.tri(key.module.pcc, diag=T)] <- NA
+key.module.scc[upper.tri(key.module.scc, diag=T)] <- NA
+
+### melt
+# melt.pcc <- melt(key.module.pcc, na.rm=T)
+melt.scc <- melt(key.module.scc, na.rm=T)
+head(melt.scc)
+## output data
+# write.csv(melt.pcc, file="~/Downloads/Rshiny_cell-markers/Rtables/correlations/mmrf/BI_TP53_1_PCC.csv", row.names=FALSE)
+# write.csv(melt.scc, file="~/Downloads/Rshiny_cell-markers/Rtables/correlations/mmrf/BI_TP53_1_SCC.csv", row.names=FALSE)
+
+### plot
+cormat <- melt.scc # CHANGE
+## save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/correlations/BCMA_module24/t4-14-pts.tiff", res = 300, width = 7, height = 6, units = "in")
+ggplot(cormat, aes(Var1, Var2)) +
+  geom_tile(aes(fill=value)) +
+  scale_fill_continuous(limits=c(0, 1), 
+                        na.value="white", low="steelblue", high="orange") +
+  #xlim(levels(genes.order)) +
+  labs(x="", y="", fill="abs(SCC)", title="Correlation Heatmap, BCMA module, t(4;14) patients") +
+  theme_pubr(legend="right") + 
+  theme(axis.text.x=element_text(angle=90, vjust=0.5)) +
+  theme(axis.text.x=element_text(face="italic")) + 
+  theme(axis.text.y=element_text(face="italic"))
+dev.off()
+```

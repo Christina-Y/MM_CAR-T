@@ -1,0 +1,720 @@
+---
+title: "Cell markers - plotting"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyr)
+library(dplyr)
+library(ggpubr)
+library(grid)
+```
+
+Resources:
+```{r}
+## re-level factors as needed
+levels(group)
+group <- factor(group, levels=levels(group)[c(2, 1)])
+
+## Rename factors:
+levels(group)[levels(group)==2] <- "Normal"
+```
+
+
+### Combined dataset
+```{r}
+ttg <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/plotting/combined_24_genes_v2.rds")
+# control <- filter(ttg, Genes=="CLOCK")
+# control.expr <- mean(control$Expression)
+
+## pick colors
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(5, "Greys"))(ncols)
+
+## order genes by expression:
+ttg$Genes <- reorder(ttg$Genes, -ttg$Expression)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+ttg$Genes <- factor(ttg$Genes, levels=genes.order)
+
+##> create facet for control gene
+### re-format for faceted boxplot
+# ttg$Facet <- factor(ifelse(ttg$Genes %in% "CLOCK", 1, 0))
+
+## plot - CHANGE fill as needed
+tiff(file="~/Downloads/Rshiny_cell-markers/Rplots/final_fig1/fig1a_v3.tiff", res = 300, width = 10, height = 7, units = "in")
+p <- ggplot(ttg, aes(x=Genes, y=Expression, fill=Dataset)) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual("", values=mycolors) +
+  # geom_hline(yintercept=control.expr, color="black", linetype="dashed") +
+  # theme(axis.text.x = element_text(size=10)) +
+  # ggtitle("Gene expression of cell surface markers") + 
+  theme_pubr() +
+  theme(axis.text.x = element_text(face="italic"))
+  # facet_grid(~Facet, scales="free", space="free") +
+  # theme(strip.background = element_blank(),
+  #       strip.text.x = element_blank())
+ggpar(p, xlab="", ylab="Relative expression (z-score) in MM patients", legend="right", x.text.angle=90)
+dev.off()
+```
+
+### Arkansas - baseline vs relapsed
+```{r}
+########### all genes ###########
+mat <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/mm_pts/genes24_arkansas_v2.rds")
+group <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/arkansas_baseline_relapse.rds")
+levels(group)
+levels(group) <- c("newly diagnosed", "relapsed")
+
+filepath <- "~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rplots/figureS1/arkansas_baseline_relapse_full_v3"
+legend.name <- "GSE31161 pts"
+plot.title <- "Gene expression in GSE31161"
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+gene <- c("CD200", "CD56", "SLAMF7", "FUT3", "ITGB7", "ICAM1", "TACI",
+          "GPRC5D", "CD70", "IGF1R", "CD44", "BCMA", "CD138")
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=NULL)
+head(dd)
+levels(dd$Factor)
+
+### Save plot
+tiff(filename=paste0(filepath, ".tiff"), res = 300, width = 10, height = 7, units = "in")
+pdf(file=paste0(filepath, ".pdf"), width = 10, height = 7)
+
+## choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+## plot
+ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  # ylim(-10, 20) +
+  theme_pubr(legend="right") +
+  theme(axis.text.x = element_text(face="italic", angle = 90, hjust = 1, vjust = 0.5)) +
+  # ggtitle(plot.title) +
+  ylab("log2(Expression)")
+dev.off()
+
+#########################################
+########### significant genes ###########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_arkansas.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/arkansas_baseline_relapse.rds")
+
+# filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/"
+# legend.name <- "Patient sample"
+# plot.title <- "Gene expression in GSE31161"
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+gene <- c("TACI", "CD56", "CD47", "CD81", "CD138", "CD40", "SLAMF7", "CD74",
+          "ITGB7", "CD200", "CD38", "LY9", "GPRC5D")
+upreg.genes <- c("CD81", "ITGB7")
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=gene)
+head(dd)
+
+
+### re-format for barplot
+df <- group_by(dd, Genes, Factor) %>% summarize(Expression=mean(Expression))
+df <- spread(df, key=Factor, value=Expression) %>% mutate(ratio=log2(relapse/baseline))
+df
+
+## reorder genes
+df$Genes <- reorder(df$Genes, df$ratio) # order by expression level
+
+## add back factor
+df$Factor <- factor(ifelse(df$ratio < 0, "Downreg", "Upreg"))
+
+########### barplot ###########
+##> plot barplot
+## choose colors
+ncols <- ifelse(is.factor(df$Factor), length(levels(df$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(5, "Greys"))(5)[c(2, 4)]
+p <- ggplot(df, aes(x=Genes, y=ratio, fill=Factor)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  scale_fill_manual(values=mycolors) +
+  theme_pubr() +
+  coord_flip()
+ggpar(p, xlab="", ylab="log2(Expression ratio (relapse/baseline))", legend="none", x.text.angle=0) # change angle to 0 if coord_flip()
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig1/arkansas_baseline_vs_relapse_sig_greys.tiff", res = 300, width = 7, height = 7, units = "in")
+ggpar(p, xlab="", ylab="log2(Expression ratio (relapse/baseline))", legend="none", x.text.angle=0)
+dev.off()
+```
+
+### Revised ISS
+```{r}
+########### significant genes ###########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf_v2.rds")
+group <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/r_iss_factors.rds")
+
+# filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/figureS1/"
+legend.name <- "R-ISS Stage"
+plot.title <- "R-ISS"
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+gene <- c("TACI", "CD19", "CD74", "CD38", "CD70", "IGKC", "CD200", "IGF1R", 
+          "SLAMF7", "CD40")
+upreg.genes <- c("CD70", "IGF1R")
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=gene) # gene=NULL for full
+head(dd)
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+levels(dd$Factor) <- c("I", "II", "III")
+
+### re-format for faceted boxplot
+dd$Upreg <- factor(ifelse(dd$Genes %in% upreg.genes, 1, 0))
+
+###> plot boxplot
+# choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+p <- ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  ylim(-10, 20) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(legend.position="right") +
+  ylab("log2(Expression)") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.text.x = element_text(face="italic")) #+
+  # facet_grid(~dd$Upreg, scales="free", space="free") +
+  # theme(strip.text = element_text(colour = c("#CA0020")))
+
+### change facet strip to red and blue
+g <- ggplot_gtable(ggplot_build(p))
+strip_both <- which(grepl('strip-', g$layout$name))
+fills <- c("#0571B0","#CA0020")
+k <- 1
+for (i in strip_both) {
+j <- which(grepl('rect', g$grobs[[i]]$grobs[[1]]$childrenOrder))
+g$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+k <- k+1
+}
+
+# grid.draw(g)
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/figureS1/figS1_r-iss_v2.tiff", res = 300, width = 10, height = 7, units = "in")
+# grid.draw(g) # significant genes
+p # full boxplot
+dev.off()
+
+### calculate DE genes fold-change
+head(dd)
+dd.summary <- group_by(dd, Genes, Factor) %>%
+  summarize(mean.Expr=mean(Expression))
+head(dd.mean.expr)
+
+fold.change <- NULL
+for(gene in unique(dd$Genes)) {
+  fc <- dd.summary$mean.Expr[dd.summary$Genes==gene & dd.summary$Factor=="III"] / dd.summary$mean.Expr[dd.summary$Genes==gene & dd.summary$Factor=="I"]
+  log2.fc <- log2(abs(fc))
+  fold.change <- rbind(fold.change, data.frame(gene, fc))
+}
+fold.change
+```
+
+### Drivers
+```{r}
+########### significant genes ###########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/drivers_factors.rds")
+
+filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/final_fig1"
+legend.name <- "Number of\ndrivers"
+plot.title <- "Drivers"
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+gene <- c("CD70", "CD40", "CD19", "CD1D", "GPRC5D", "IGF1R", "CD81", "ITGB7", "IGKC")
+upreg.genes <- c("CD70", "GPRC5D", "IGF1R", "ITGB7")
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=gene)
+head(dd)
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+### re-format for faceted boxplot
+dd$Upreg <- factor(ifelse(dd$Genes %in% upreg.genes, 1, 0))
+
+### > plot boxplot
+# choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+p <- ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  ylim(-10, 20) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(legend.position="right") +
+  ylab("log2(Expression)") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.text.x = element_text(face="italic")) +
+  facet_grid(~dd$Upreg, scales="free", space="free") +
+  theme(strip.text = element_text(colour = c("#CA0020")))
+
+### change facet strip to red and blue
+g <- ggplot_gtable(ggplot_build(p))
+strip_both <- which(grepl('strip-', g$layout$name))
+fills <- c("#0571B0","#CA0020")
+k <- 1
+for (i in strip_both) {
+j <- which(grepl('rect', g$grobs[[i]]$grobs[[1]]$childrenOrder))
+g$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+k <- k+1
+}
+
+### plot
+# grid.draw(g)
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig1/drivers_italics.tiff", res = 300, width = 10, height = 7, units = "in")
+grid.draw(g)
+# p # full plot
+dev.off()
+```
+
+### Translocations
+```{r}
+########### significant genes ###########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+
+filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/"
+legend.name <- "Translocation\ntype"
+plot.title <- "Translocations"
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+gene <- c("CD19", "CD40", "CD1D", "CD200", "CD56", "SLAMF7", "FUT3", "ITGB7", "ICAM1",
+          "TACI", "GPRC5D", "CD70", "IGF1R", "CD44", "BCMA", "CD138")
+upreg.genes <- c("CD200", "CD56", "SLAMF7", "FUT3", "ITGB7", "ICAM1",
+                 "TACI", "GPRC5D", "CD70", "IGF1R", "CD44", "BCMA", "CD138")
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=gene)
+head(dd)
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+### re-format for faceted boxplot
+dd$Upreg <- factor(ifelse(dd$Genes %in% upreg.genes, 1, 0))
+
+### > plot boxplot
+# choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(4, "Greys"))(ncols)
+p <- ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  ylim(-10, 20) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(legend.position="right") +
+  ylab("log2(Expression)") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.text.x = element_text(face="italic")) +
+  facet_grid(~dd$Upreg, scales="free", space="free") +
+  theme(strip.text = element_text(colour = c("#CA0020")))
+
+### change facet strip to red and blue
+g <- ggplot_gtable(ggplot_build(p))
+strip_both <- which(grepl('strip-', g$layout$name))
+fills <- c("#0571B0","#CA0020")
+k <- 1
+for (i in strip_both) {
+j <- which(grepl('rect', g$grobs[[i]]$grobs[[1]]$childrenOrder))
+g$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+k <- k+1
+}
+
+### plot
+# grid.draw(g)
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig1/translocations_italics.tiff", res = 300, width = 12, height = 7, units = "in")
+grid.draw(g) # significant genes
+# p # full boxplot
+dev.off()
+```
+
+### Normal HSCs
+```{r}
+########## boxplot of normal HSC ##########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_gse17054.rds")
+head(mat)
+str(mat)
+
+### wrangle data
+d <- data.frame(Genes=rownames(mat), mat)
+head(d[, 1:5])
+dd <- d %>% gather(Factor, Expression, -Genes)
+head(dd)
+
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+## plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig3/normal_hsc_boxplot.tiff", res = 300, width = 12, height = 7, units = "in")
+ggplot(dd, aes(x=Genes, y=Expression)) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  # scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  # ggtitle(plot.title) +
+  ylab("log2(Expression)") +
+  xlab("")
+dev.off()
+  
+########## barplot of cancer-normal ##########
+df <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/plotting/df_hsc-vs-mm_ark.rds")
+head(df)
+
+####### ggplot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig3/cancer-hsc_barplot.tiff", res = 300, width = 10, height = 7, units = "in")
+ggplot(df, aes(x=Genes, y=Diff)) +
+  geom_bar(stat="identity", fill=df$Color) +
+  coord_flip() +
+  theme_pubr() +
+  xlab("") +
+  ylab("Cancer - Normal (z-score)")
+dev.off()
+
+##### normal immune cells ##### 
+tab <- read.csv("~/Documents/osu/Perna_lab/bloodspot/HemaExplorer/BST2_log2.csv", stringsAsFactors=FALSE, header=FALSE)
+head(tab[, 1:5])
+table(as.character(tab[1, ]))
+```
+
+### Normal HSCs (GSE76340)
+```{r}
+########## boxplot of normal HSC ##########
+dd <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/plotting/dd_hsc-vs-mm_gse76340_boxplots.rds")
+head(dd)
+  
+## plot
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/figureS5/hsc_mm_boxplot.tiff", res = 300, width = 12, height = 7, units = "in")
+ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name="") +
+  theme_pubr(legend="right") +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  theme(axis.text.x = element_text(face="italic")) +
+  # ggtitle(plot.title) +
+  ylab("log2(Expression)") +
+  xlab("")
+dev.off()
+
+########## barplot of HSC/MM ratio ##########
+df <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/plotting/df_hsc-vs-mm_gse76340.rds")
+
+## plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/figureS5/mm-hsc_barplot.tiff", res = 300, width = 5, height = 5, units = "in")
+ggplot(df, aes(x=Genes, y=Ratio)) +
+  geom_bar(stat="identity", fill=df$Color) +
+  coord_flip() +
+  theme_pubr() +
+  theme(axis.text.y = element_text(face="italic")) +
+  xlab("") +
+  ylab("log2(MM/HSC)")
+dev.off()
+```
+
+### Normal BMPCs (GSE5900)
+```{r}
+########## boxplot of normal HSC ##########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_gse5900.rds")
+head(mat)
+str(mat)
+
+### wrangle data
+d <- data.frame(Genes=rownames(mat), mat)
+head(d[, 1:5])
+dd <- d %>% gather(Factor, Expression, -Genes)
+head(dd)
+
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+## plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/figureS3/normal_bmpc_boxplot.tiff", res = 300, width = 12, height = 7, units = "in")
+ggplot(dd, aes(x=Genes, y=Expression)) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  # scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  # ggtitle(plot.title) +
+  ylab("log2(Expression)") +
+  xlab("")
+dev.off()
+```
+
+### Normal BMPCs GSE6477
+```{r}
+########## load data and make matrix ##########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_gse6477_log2_full.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/gse6477_norm_all-mm_factors.rds")
+levels(group) <- c("Normal donors", "MM patients")
+table(group)
+
+mat <- mat[, which(colnames(mat) %in% names(group))]
+
+########## common functions ##########
+legend.name <- ""
+plot.title <- ""
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=NULL)
+head(dd)
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+### > plot boxplot
+# choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+p <- ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(legend.position="right") +
+  theme(axis.text.x = element_text(face="italic")) +
+  ylab("log2(Expression)") +
+  xlab("") +
+  # ggtitle(plot.title) +
+  theme(axis.text.x = element_text(angle=90, size=10))
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/figureS5/bmpc_mm_boxplot.tiff", res = 300, width = 12, height = 7, units = "in")
+# grid.draw(g)
+p # full plot
+dev.off()
+
+
+
+
+######### updated plot with upreg and downreg genes #########
+tab <- read_csv("~/Downloads/Rshiny_cell-markers/Rtables/updated_stats/GSE6477_bmpc-vs-mm/gse6477_t_test.csv")
+upreg.genes <- c(filter(tab, Upreg_MM==1) %>% select(Genes))
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=NULL)
+head(dd)
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+### re-format for faceted boxplot
+dd$Upreg <- factor(ifelse(dd$Genes %in% upreg.genes$Genes, 1, 0))
+
+### > plot boxplot
+# choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+p <- ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  ylim(0, 20) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(legend.position="right") +
+  ylab("log2(Expression)") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle=90, size=10, hjust=0.95,vjust=0.5)) +
+  theme(axis.text.x = element_text(face="italic")) +
+  facet_grid(~dd$Upreg, scales="free", space="free") +
+  theme(strip.text = element_text(colour = c("#CA0020")))
+
+### change facet strip to red and blue
+g <- ggplot_gtable(ggplot_build(p))
+strip_both <- which(grepl('strip-', g$layout$name))
+fills <- c("#0571B0","#CA0020")
+k <- 1
+for (i in strip_both) {
+j <- which(grepl('rect', g$grobs[[i]]$grobs[[1]]$childrenOrder))
+g$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+k <- k+1
+}
+
+### plot
+# grid.draw(g)
+
+pdf(file="~/Downloads/Rshiny_cell-markers/Rplots/figureS5/gse6477_bmpc_mm_boxplot.pdf", width = 10, height = 6)
+grid.draw(g) # significant genes
+# p # full boxplot
+dev.off()
+```
+
+### BCMA
+```{r}
+########## BCMA in MMRF ##########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/mmrf_bcma_factors.rds")
+levels(group)
+
+########## BCMA in relapsed pts in Arkansas ##########
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_arkansas.rds")
+group0 <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/arkansas_baseline_relapse.rds")
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/arkansas_relapse_bcma_factors.rds")
+levels(group0)
+mat <- mat[, which(colnames(mat) %in% names(group0)[group0=="relapse"])]
+
+########## common functions ##########
+filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/figureS1/"
+legend.name <- "BCMA level"
+plot.title <- "CoMMpass pts"
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+# gene <- c("CD19", "CD40", "CD1D", "CD200", "CD56", "SLAMF7", "FUT3", "ITGB7", "ICAM1",
+#           "TACI", "GPRC5D", "CD70", "IGF1R", "CD44", "BCMA", "CD138")
+# upreg.genes <- c("CD200", "CD56", "SLAMF7", "FUT3", "ITGB7", "ICAM1",
+#                  "TACI", "GPRC5D", "CD70", "IGF1R", "CD44", "BCMA", "CD138")
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=NULL)
+head(dd)
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+### > plot boxplot
+# choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+p <- ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  # ylim(0, 18) + # ylim(-5, 20) for mmrf data
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(legend.position="right") +
+  ylab("log2(Expression)") +
+  xlab("") +
+  ggtitle(plot.title) +
+  theme(axis.text.x = element_text(angle=90, size=10))
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/FigureS2/BCMA_mmrf_full.tiff", res = 300, width = 10, height = 7, units = "in")
+# grid.draw(g)
+p # full plot
+dev.off()
+```
+
+### HRD 
+```{r}
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf.rds")
+group <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/hrd_factors_all.rds")
+
+### what's the enrichment of NHRD pts and translocation pts?
+group2 <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+
+length(intersect(names(group), names(group2))) # 212
+
+a <- data.frame(pts=names(group), hrd=group)
+b <- data.frame(pts=names(group2), translocations=group2)
+
+hrd.translocations <- merge(a, b)
+head(hrd.translocations)
+table(hrd.translocations$hrd)
+ # HRD NHRD 
+ #  47  165
+table(hrd.translocations$translocations)
+# t(11;14) t(14;16) t(14;20)  t(4;14) 
+#      109       21       10       72 
+
+
+# filepath <- "~/Downloads/Rshiny_cell-markers/Rplots/"
+legend.name <- "Hyperdiploidy\nstatus"
+plot.title <- ""
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+gene <- c("IGKC", "CD138", "BCMA", "CD74", "CD47", "BST2", "LY9",
+          "CD200", "CD56", "CD1D", "ICAM1", "CD19", 
+          "ITGB7", "CD86", "CD81", "IGF1R")
+upreg.genes <- c("CD81", "ITGB7", "IGF1R", "CD86")
+
+dd <- make.dd(mat=mat, group=group, fact=TRUE, gene=gene)
+head(dd)
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+
+### re-format for faceted boxplot
+dd$Upreg <- factor(ifelse(dd$Genes %in% upreg.genes, 1, 0))
+
+### > plot boxplot
+# choose colors
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+p <- ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  ylim(-10, 20) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(legend.position="right") +
+  ylab("log2(Expression)") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.text.x = element_text(face="italic")) +
+  facet_grid(~dd$Upreg, scales="free", space="free") +
+  theme(strip.text = element_text(colour = c("#CA0020")))
+
+### change facet strip to red and blue
+g <- ggplot_gtable(ggplot_build(p))
+strip_both <- which(grepl('strip-', g$layout$name))
+fills <- c("#0571B0","#CA0020")
+k <- 1
+for (i in strip_both) {
+j <- which(grepl('rect', g$grobs[[i]]$grobs[[1]]$childrenOrder))
+g$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+k <- k+1
+}
+
+### plot
+# grid.draw(g)
+
+### save plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig1/hrd_italics.tiff", res = 300, width = 12, height = 7, units = "in")
+grid.draw(g) # significant genes
+# p # full boxplot
+dev.off()
+```
+
+
+### Function to format dataframe for plotting
+```{r}
+make.dd <- function(mat=x, group=y, gene=NULL, fact=TRUE) {
+  ############# automated process #############
+  ### match up sample names
+  all.equal(colnames(mat), names(group)) # FALSE
+  ## if FALSE and dimensions of mat is larger than group:
+  if(!(all.equal(colnames(mat), names(group)) == TRUE)[1]) {
+    mat <- mat[, which(colnames(mat) %in% names(group))]
+    ## check again
+    all.equal(colnames(mat), names(group)) # TRUE
+  }
+  
+  ### wrangle data
+  d <- data.frame(Genes=rownames(mat), mat)
+  head(d[, 1:5])
+  dd <- d %>% gather(Factor, Expression, -Genes)
+  head(dd)
+  
+  ######### If selecting genes: #########
+  if(!is.null(gene)) {
+    dd <- dd[which(dd$Genes %in% gene), ]
+  }
+  
+  ######### If there is a factor: #########
+  if(fact) {
+    ## Factor right now are sample names, so change to actual factor names
+    for(fac in levels(group)) {
+      dd$Factor[which(dd$Factor %in% names(group)[group==fac])] <- fac
+    }
+    dd$Factor <- factor(dd$Factor)
+    levels(dd$Factor)
+    ## Re-level the factor according to order given in group
+    dd$Factor <- factor(dd$Factor, levels=levels(group))
+  }
+  
+  return(dd)
+}
+
+```

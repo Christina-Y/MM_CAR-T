@@ -1,0 +1,80 @@
+---
+title: "Cell markers, TP53"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Gene drivers
+```{r drivers}
+annotation <- read.csv("~/Downloads/MM GEP dataset/MMRF RNAseq/MMRF_annotation_ONLY.csv")
+genes20.mmrf <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+drivers <- annotation$n_drivers
+names(drivers) <- annotation$Patient
+table(drivers)
+sum(is.na(drivers)) # 0
+length(drivers) # 598
+levels(drivers) ## This will show the levels of x
+## To reorder the levels:
+## note, if x is not a factor use levels(factor(x))
+drivers <- factor(drivers, levels(drivers)[c(1, 3, 2)])
+levels(drivers)
+saveRDS(drivers, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/drivers_factors.rds")
+
+### format dataset
+## genes20.iss is only risk 1 vs 3
+d <- data.frame(Genes=rownames(genes20.mmrf), genes20.mmrf)
+dd <- d %>% gather(Drivers, Expression, -Genes)
+head(dd)
+## change Patient to R-ISS
+dd$Drivers[which(dd$Drivers %in% names(drivers)[drivers=="0 to 4 drivers"])] <- "0 to 4 drivers"
+dd$Drivers[which(dd$Drivers %in% names(drivers)[drivers=="5 to 9 drivers"])] <- "5 to 9 drivers"
+dd$Drivers[which(dd$Drivers %in% names(drivers)[drivers=="10+ drivers"])] <- "10+ drivers"
+dd$Drivers <- factor(dd$Drivers)
+## To reorder the levels:
+## note, if x is not a factor use levels(factor(x))
+dd$Drivers <- factor(dd$Drivers, levels(dd$Drivers)[c(1, 3, 2)])
+levels(dd$Drivers)
+table(dd$Drivers)
+
+### Save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/Drivers_boxplot.tiff", res = 300, width = 10, height = 7, units = "in")
+## specify how many groups need color
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(9, "Blues"))(ncols)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd$Genes.relevel <- factor(dd$Genes, levels=genes.order)
+## plot
+ggplot(dd, aes(x=Genes.relevel, y=Expression, fill=Drivers)) +
+  geom_boxplot(notch=TRUE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  ggtitle("Gene expression stratified by number of drivers") + 
+  ylab("log2(Expression)") +
+  xlab("Genes")
+dev.off()
+
+### ANOVA
+## make sure the following is true before running
+all.equal(colnames(genes20.mmrf), names(drivers)) # TRUE
+markers <- rownames(genes20.mmrf)
+for(gene in markers) {
+  gene.expr <- genes20.mmrf[gene, ]
+  
+  # ANOVA
+  model <- aov(gene.expr ~ drivers)
+  aov.pval <- summary(aov(model))[[1]][["Pr(>F)"]][[1]]
+  
+  # if significant, then Tukey
+  if(aov.pval <= 0.05) {
+    print(paste("yes", gene))
+    
+    tukey <- TukeyHSD(model)
+    
+    write.csv(tukey$drivers, file=paste0("~/Downloads/Rshiny_cell-markers/Rtables/Drivers_tukey/", gene, ".csv"))
+  }
+}
+```
+

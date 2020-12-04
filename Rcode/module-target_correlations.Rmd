@@ -1,0 +1,218 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+# group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+# ## choose genes outside of 24 targets
+# mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+# g <- c("FCRL1", "FCRL2", "FCRL3", "FCRL4", "FCRL5", "FCRL6")
+# g <- c("MDM2", "MDM4", "TP53", "CDKN1A")
+# g <- c("FUT3", "FGFR3", "WHSC1")
+# g <- c("ICAM1", "MAF", "NFKB1", "FUT3", "WHSC1", "FGFR3")
+# g <- c("ZFP36L1", "ANGEL1")
+# g <- c("FUT3", "FGFR3", "WHSC1", "BCMA", "CD138", "SLAMF7", "CD56", "CD200")
+# g <- read.csv("~/Documents/osu/Perna_lab/surface_proteins/ms_mmrf_overlap_155.csv", stringsAsFactors=TRUE)
+# g <- g$UniProt.gene
+# mat <- mat[which(rownames(mat) %in% c("MAF", "ICAM1", "NFKB1")), ] ## ICAM1 with MAF
+# mat <- mat[which(rownames(mat) %in% c("FUT3", "FGFR3")), ] ## FUT3 with FGFR3
+# which(rownames(mat) %in% g)
+# mat <- mat[which(rownames(mat) %in% g), ]
+# rowMeans(mat)
+# cor(t(mat), method="spearman")
+
+######## module genes ########
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+levels(group)
+### set up to get module genes:
+## read in modules
+modules <- readRDS("~/Documents/osu/Perna_lab/network_mining/mmrf/rds/gamma60_log2-mat_spearman.rds")
+## full mmrf expression matrix
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+
+
+############### automated process ###############
+mod.target <- read.csv("~/Downloads/Rshiny_cell-markers/Rtables/lmQCM_modules/correlations/module-target_list.csv", stringsAsFactors=FALSE)
+
+for(i in mod.target$Module) {
+  ## full mmrf expression matrix
+  mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+  
+  targets <- unlist(strsplit(mod.target$Correlated.target[mod.target$Module==i], ", "))
+  
+  g <- c(modules@clusters.names[[i]], targets)
+  
+  mat <- mat[which(rownames(mat) %in% g), ]
+  
+  ## calculate correlation
+  cor.mat <- cor(t(mat), method="spearman")
+  
+  print(i)
+  print(rowMeans(cor.mat)[c(targets)])
+}
+
+
+```
+
+Calculate correlations between target and specific enrichment term
+```{r}
+#### module 11 with CD70 and IGF1R
+chr <- read.csv("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/mod11/Chromosome_Location.csv", stringsAsFactors=FALSE)
+a <- unlist(strsplit(chr$Genes[1], ";"))
+a <- unlist(strsplit(chr$Genes[2], ";"))
+a <- unlist(strsplit(chr$Genes[3], ";"))
+
+g <- c(a, "CD70", "IGF1R")
+
+## full mmrf expression matrix
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+mat <- mat[which(rownames(mat) %in% g), ]
+
+## calculate correlation
+cor.mat <- cor(t(mat), method="spearman")
+
+rowMeans(cor.mat)[c("CD70", "IGF1R")]
+rowMeans(cor.mat)["CD19"]
+rowMeans(cor.mat)[c("CD19", "CD40", "IGF1R", "CD74")]
+
+#### module 9 with CD19
+chr <- read.csv("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/mod9/Chromosome_Location.csv", stringsAsFactors=FALSE)
+a <- unlist(strsplit(chr$Genes[1], ";"))
+a <- unlist(strsplit(chr$Genes[2], ";"))
+a <- unlist(strsplit(chr$Genes[3], ";"))
+
+g <- c(a, "CD19")
+
+#### module 8 with CD19, CD40, IGF1R, CD74
+chr <- read.csv("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/mod8/Chromosome_Location.csv", stringsAsFactors=FALSE)
+a <- unlist(strsplit(chr$Genes[1], ";"))
+a <- unlist(strsplit(chr$Genes[2], ";"))
+a <- unlist(strsplit(chr$Genes[3], ";"))
+a <- unlist(strsplit(chr$Genes[4], ";"))
+a <- unlist(strsplit(chr$Genes[5], ";"))
+
+g <- c(a, c("CD19", "CD40", "IGF1R", "CD74"))
+```
+
+
+
+
+
+```{r}
+############### manual check ###############
+mods <- c(1, 2, 3, 4, 5, 8, 9, 11, 13, 14, 15, 18, 20, 22, 23, 24, 25, 27, 28, 33, 34, 35, 37, 38, 39, 44, 47, 48, 50, 51)
+
+### make matrix given a module number
+n <- 47
+
+## full mmrf expression matrix
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+
+if(n==1) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[1]], "IGF1R", "BST2")), ]
+} else if(n==2) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[2]], "CD81", "CD19")), ]
+} else if(n==3) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[3]], "BCMA", "CD38")), ]
+} else if(n==4) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[4]], "CD40", "CD81")), ]
+} else if(n==5) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[5]], "ICAM1")), ]
+} else if(n==8) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[8]], "CD19", "CD40", "IGF1R", "CD74")), ]
+} else if(n==9) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[9]], "CD19")), ]
+} else if(n==11) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[11]], "IGF1R", "CD70")), ]
+} else if(n==13) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[13]], "CD81")), ]
+} else if(n==14) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[14]], "CD74")), ]
+} else if(n==15) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[15]], "BCMA")), ]
+} else if(n==18) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[18]], "CD40", "CD138", "CD44", "CD74", "CD19")), ]
+} else if(n==20) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), ]
+} else if(n==22) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[22]], "IGF1R")), ]
+} else if(n==23) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[23]], "ICAM1")), ]
+} else if(n==24) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[24]], "ICAM1", "BCMA", "FUT3")), ]
+} else if(n==25) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[25]], "BCMA", "ICAM1", "CD44")), ]
+} else if(n==27) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[27]], "BST2")), ]
+} else if(n==28) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[28]], "BST2", "IGF1R")), ]
+} else if(n==33) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[33]], "CD74", "CD40", "CD19")), ]
+} else if(n==34) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[34]], "CD40", "CD74")), ]
+} else if(n==35) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[35]], "BST2", "IGF1R", "CD19", "CD40")), ]
+} else if(n==37) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[37]], "CD81")), ]
+} else if(n==38) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[38]], "CD19", "CD74", "ICAM1")), ]
+} else if(n==39) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[39]], "FUT3", "CD74")), ]
+} else if(n==44) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[44]], "LY9")), ]
+} else if(n==47) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3")), ]
+} else if(n==48) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[48]], "FUT3")), ]
+} else if(n==50) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[50]], "CD74", "ICAM1", "CD40", "CD44")), ]
+} else if(n==51) {
+  mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[51]], "CD86", "CD56", "CD138", "ITGB7")), ]
+} else {
+  mat <- NULL
+}
+
+cor.mat <- cor(t(mat), method="spearman")
+rowMeans(cor.mat)[c("IGF1R", "BST2")]
+rowMeans(cor.mat)[c("IGF1R", "CD70")]
+rowMeans(cor.mat)["FUT3"]
+
+##############################
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[1]], "IGF1R", "BST2")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[2]], "CD81", "CD19")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[3]], "BCMA", "CD38")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[4]], "CD40", "CD81")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[5]], "ICAM1")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[8]], "CD19", "CD40", "IGF1R", "CD74")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[9]], "CD19")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[11]], "IGF1R", "CD70")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[13]], "CD81")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[14]], "CD74")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[15]], "BCMA")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[18]], "CD40", "CD138", "CD44", "CD74", "CD19")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[22]], "IGF1R")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[23]], "ICAM1")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[24]], "ICAM1", "BCMA", "FUT3")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[25]], "BCMA", "ICAM1", "CD44")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[27]], "BST2")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[28]], "BST2", "IGF1R")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[33]], "CD74", "CD40", "CD19")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[34]], "CD40", "CD74")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[35]], "BST2", "IGF1R", "CD19", "CD40")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[37]], "CD81")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[38]], "CD19", "CD74", "ICAM1")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[39]], "FUT3", "CD74")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[44]], "LY9")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[47]], "FUT3")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[48]], "FUT3")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[50]], "CD74", "ICAM1", "CD40", "CD44")), ]
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[51]], "CD86", "CD56", "CD138", "ITGB7")), ]
+##############################
+
+cor.mat <- cor(t(mat), method="spearman")
+cor.mat["" ]
+```

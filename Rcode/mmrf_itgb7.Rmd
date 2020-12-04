@@ -1,0 +1,117 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Identify patients with low ITGB7 expression (bottom third)
+Note: don't make data into a dataframe before plotting histograms
+```{r}
+genes20.mmrf <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+dim(genes20.mmrf) # 24 598
+head(genes20.mmrf[, 1:6])
+itg <- genes20.mmrf["ITGB7", ]
+head(itg)
+hist(itg, main="ITGB7", xlab="log2(Gene expression)")
+## get cutoff values to use to divide gene expression
+# use +/- 1 standard deviation as cutoff
+cutoff.low <- mean(itg) - sd(itg)
+cutoff.hi <- mean(itg) + sd(itg)
+itg.low <- itg[which(itg < cutoff.low)]
+length(itg.low) # 77
+itg.med <- itg[which(cutoff.low < itg & itg < cutoff.hi)]
+length(itg.med) # 462
+itg.hi <- itg[which(cutoff.hi < itg)]
+length(itg.hi) # 59
+
+### Make plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/mmrf_ITGB7_histogram.tiff", res = 300, width = 6, height = 4, units = "in")
+hist(itg, main="ITGB7", xlab="log2(Gene expression)")
+abline(v=cutoff.low, col="red")
+abline(v=cutoff.hi, col="red")
+dev.off()
+
+### dataframe time
+### make into dataframe
+d <- data.frame(Genes=rownames(genes20.mmrf),
+                genes20.mmrf)
+rownames(d) <- NULL
+str(d)
+d[1:5, 1:5]
+
+### make factor
+itg.factor <- factor(c(rep("low", length(itg.low)), 
+                        rep("medium", length(itg.med)), 
+                        rep("high", length(itg.hi))),
+                      levels=c("low", "medium", "high"))
+names(itg.factor) <- c(names(itg.low), names(itg.med), names(itg.hi))
+itg.factor <- itg.factor[order(names(itg.factor))] # order patients
+all.equal(names(d)[-c(1)], names(itg.factor)) # TRUE
+saveRDS(itg.factor, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/mmrf_itgb7_factors.rds")
+
+### aggregate bmca - turn into categorical variable
+dd <- gather(d, key="Patient", value="Expression", -Genes)
+head(dd)
+
+itg.level <- data.frame(Patient=c(names(itg.low), 
+                                   names(itg.med), 
+                                   names(itg.hi)), 
+                       ITGB7.level=factor(c(rep("low", length(itg.low)), 
+                                    rep("medium", length(itg.med)), 
+                                    rep("high", length(itg.hi))),
+                                    levels=c("low", "medium", "high")
+                                    )
+                       )
+head(itg.level)
+table(itg.level$ITGB7.level)
+
+dd.itg <- merge(dd, itg.level, by="Patient")
+head(dd.itg)
+saveRDS(dd.itg, file="~/Downloads/Rshiny_cell-markers/Rdata/mmrf_dd_itgb7_levels.rds")
+
+### Save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/ITGB7_mmrf_boxplot_genes24.tiff", res = 300, width = 10, height = 7, units = "in")
+## specify how many groups need color
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(9, "Blues"))(ncols)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd.itg$Genes.relevel <- factor(dd$Genes, levels=genes.order)
+## plot
+ggplot(dd.itg, aes(x=Genes.relevel, y=Expression, fill=ITGB7.level)) +
+  geom_boxplot(notch=TRUE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  ggtitle("Gene expression stratified by ITGB7 expression - MMRF") + 
+  ylab("log2(Expression)") +
+  xlab("Genes")
+dev.off()
+```
+
+
+Calculate the statistics - ANOVA followed by Tukey
+```{r}
+### ANOVA
+head(itg.factor)
+## make sure the following is true before running
+all.equal(colnames(genes20.mmrf), names(itg.factor)) # TRUE
+markers <- rownames(genes20.mmrf)
+for(gene in markers) {
+  gene.expr <- genes20.mmrf[gene, ]
+  
+  # ANOVA
+  model <- aov(gene.expr ~ itg.factor)
+  aov.pval <- summary(aov(model))[[1]][["Pr(>F)"]][[1]]
+  
+  # if significant, then Tukey
+  if(aov.pval <= 0.05) {
+    print(paste("yes", gene))
+    
+    tukey <- TukeyHSD(model)
+    
+    write.csv(tukey$itg.factor, file=paste0("~/Downloads/Rshiny_cell-markers/Rtables/ITGB7_mmrf_tukey/", gene, ".csv"))
+  }
+}
+```

@@ -1,0 +1,89 @@
+---
+title: "MMRF survival - HRD vs NHRD"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r load_libraries}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyr)
+library(dplyr)
+library(survival)
+library(survminer)
+
+`%notin%` <- Negate(`%in%`)
+```
+
+```{r}
+surv.dat <- readRDS("~/Downloads/mmrf_WIP/rds/mmrf_clin_final_relapse_censor.rds")
+head(surv.dat)
+
+hrd.factors <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/factors/hrd_factors.rds")
+table(hrd.factors)
+
+transloc.factors <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+table(transloc.factors)
+
+hrd.transloc <- c(as.character(hrd.factors), as.character(transloc.factors))
+names(hrd.transloc) <- c(names(hrd.factors), names(transloc.factors))
+
+########
+surv.hrd <- surv.dat[which(surv.dat$Patient_ID %in% names(hrd.factors)), ]
+surv.hrd <- surv.hrd[match(names(hrd.factors), surv.hrd$Patient_ID), ] # reorder
+all.equal(as.character(surv.hrd$Patient_ID), names(hrd.factors))
+surv.hrd$HRD <- hrd.factors
+
+head(surv.hrd)
+
+surv.hrd[, c("DFS_STATUS", "CENSOR_EVENT")]
+
+### fit survival curve and plot Kaplan Meier
+## OS
+fit <- survfit(Surv(surv.hrd$OS_TIME, surv.hrd$CENSOR_EVENT) ~ surv.hrd$HRD)
+ggsurvplot(fit, data=surv.hrd[, c("OS_TIME", "CENSOR_EVENT", "HRD")], 
+           risk.table=TRUE, title="OS", pval=TRUE, pval.method=TRUE)
+## RFS
+fit <- survfit(Surv(surv.hrd$MIN_TIME, surv.hrd$CENSOR_EVENT) ~ surv.hrd$HRD)
+ggsurvplot(fit, data=surv.hrd[, c("MIN_TIME", "CENSOR_EVENT", "HRD")], 
+           risk.table=TRUE, title="RFS", pval=TRUE, pval.method=TRUE)
+########
+########
+surv.hrd.trans <- surv.dat[which(surv.dat$Patient_ID %in% names(hrd.transloc)), ]
+surv.hrd.trans <- surv.hrd.trans[match(names(hrd.transloc), surv.hrd.trans$Patient_ID), ] # reorder
+all.equal(as.character(surv.hrd.trans$Patient_ID), names(hrd.transloc))
+surv.hrd.trans$cytogenetics <- hrd.transloc
+
+head(surv.hrd.trans)
+
+### fit survival curve and plot Kaplan Meier
+## OS
+fit <- survfit(Surv(surv.hrd.trans$OS_TIME, surv.hrd.trans$CENSOR_EVENT) ~ surv.hrd.trans$cytogenetics)
+ggsurvplot(fit, data=surv.hrd.trans[, c("OS_TIME", "CENSOR_EVENT", "cytogenetics")], 
+           risk.table=TRUE, title="OS", pval=TRUE, pval.method=TRUE)
+## RFS
+fit <- survfit(Surv(surv.hrd.trans$MIN_TIME, surv.hrd.trans$CENSOR_EVENT) ~ surv.hrd.trans$cytogenetics)
+ggsurvplot(fit, data=surv.hrd.trans[, c("MIN_TIME", "CENSOR_EVENT", "cytogenetics")], 
+           risk.table=TRUE, title="RFS", pval=TRUE, pval.method=TRUE)
+########
+########
+surv.trans <- surv.dat[which(surv.dat$Patient_ID %in% names(transloc.factors)), ]
+surv.trans <- surv.trans[match(names(transloc.factors), surv.trans$Patient_ID), ] # reorder
+all.equal(as.character(surv.trans$Patient_ID), names(transloc.factors))
+surv.trans$translocation <- transloc.factors
+
+head(surv.trans)
+
+### fit survival curve and plot Kaplan Meier
+## OS
+fit <- survfit(Surv(surv.trans$OS_TIME, surv.trans$CENSOR_EVENT) ~ surv.trans$translocation)
+ggsurvplot(fit, data=surv.trans[, c("OS_TIME", "CENSOR_EVENT", "translocation")], risk.table=TRUE, title="OS", pval=TRUE, pval.method=TRUE)
+## RFS
+fit <- survfit(Surv(surv.trans$MIN_TIME, surv.trans$CENSOR_EVENT) ~ surv.trans$translocation)
+ggsurvplot(fit, data=surv.trans[, c("MIN_TIME", "CENSOR_EVENT", "translocation")], 
+           risk.table=TRUE, title="RFS", pval=TRUE, pval.method=TRUE)
+########
+
+
+```

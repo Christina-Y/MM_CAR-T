@@ -1,0 +1,354 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r try (3)}
+library(sva)
+
+hsc <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/normals/gse17054_annot_log2.rds")
+rownames(hsc)[rownames(hsc)=="TNFRSF17"] <- "BCMA"
+rownames(hsc)[rownames(hsc)=="NCAM1"] <- "CD56"
+rownames(hsc)[rownames(hsc)=="SDC1"] <- "CD138"
+rownames(hsc)[rownames(hsc)=="TNFRSF13B"] <- "TACI"
+ark <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_annot_log2.rds")
+
+combined.mat <- cbind(hsc, ark)
+combined.mat[1:5, 1:5]
+batch <- factor(c(rep("GSE17054", ncol(hsc)), rep("GSE31161", ncol(ark))))
+pheno <- factor(c(rep("hsc", ncol(hsc)), rep("mm", ncol(ark))))
+
+modcombat <- model.matrix(~1, data=pheno)
+combat.edata <- ComBat(dat=combined.mat, batch=batch, mod=modcombat, par.prior=TRUE, prior.plots=FALSE)
+combat.edata[1:5, 1:5]
+
+### keep 24 genes
+genelist <- c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D")
+# subset genes: get indices
+idxs <- sapply(genelist, function(x) grep(paste0("^", x, "$"), rownames(combined.mat)))
+
+hsc.ark <- combat.edata[idxs, ]
+View(hsc.ark[, 1:6])
+
+hsc.ark.ratio <- mean(hsc.ark[, colnames(hsc.ark) %in% colnames(hsc)])
+mean(hsc.ark[, colnames(hsc.ark) %in% colnames(ark)])
+```
+
+```{r}
+library(GEOquery)
+library(biomaRt)
+
+gse763404 <- getGEO("GSE76340")
+summary(gse763404)
+
+gset <- gse763404[[1]] # V4.0 beadchip for heme malignancies
+expr.mat <- exprs(gset)
+dim(expr.mat) # 39425    69
+expr.mat[1:5, 1:5]
+gset2 <- gse763404[[2]] # V3.0 beadchip for other cells
+expr.mat2 <- exprs(gset2)
+dim(expr.mat2) # 39425    97
+expr.mat2[1:5, 1:5]
+
+### select normal samples
+pheno <- phenoData(gset)
+str(pheno@data)
+pheno@data$`cell type:ch1` # NAs are cell lines
+expr.mat <- expr.mat[, !is.na(pheno@data$`cell type:ch1`)]
+dim(expr.mat)
+cell.type1 <- pheno@data$`cell type:ch1`[!is.na(pheno@data$`cell type:ch1`)]
+
+pheno2 <- phenoData(gset2)
+pheno2@data$`cell type:ch1`
+expr.mat2 <- expr.mat2[, !is.na(pheno2@data$`cell type:ch1`)]
+cell.type2 <- pheno2@data$`cell type:ch1`[!is.na(pheno2@data$`cell type:ch1`)]
+
+common <- intersect(cell.type1, cell.type2)
+
+setdiff(rownames(expr.mat), rownames(expr.mat2)) # no difference in probes, so can cbind
+
+mat.combined <- cbind(expr.mat, expr.mat2)
+dim(mat.combined) # 39425   155
+mat.combined[1:5, 1:5]
+pheno.type <- factor(c(cell.type1, cell.type2))
+names(pheno.type) <- colnames(mat.combined)
+saveRDS(pheno.type, "~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/cell_type_factor.rds")
+saveRDS(mat.combined, "~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/combined_mat_log2.rds")
+batch <- factor(c(rep(1, ncol(expr.mat)), rep(2, ncol(expr.mat2))))
+pheno.type <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/cell_type_factor.rds")
+View(table(pheno.type))
+
+modcombat <- model.matrix(~1, data=pheno.type)
+combat.edata <- ComBat(dat=mat.combined, batch=batch, mod=modcombat, par.prior=TRUE, prior.plots=FALSE)
+saveRDS(combat.edata, "~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/combat_combined_mat_log2.rds")
+
+combat.edata[1:5, 1:5]
+
+### boxplots to see if ComBat works
+temp <- c(colnames(expr.mat)[1:10], colnames(expr.mat2)[1:10])
+boxplot(mat.combined[, which(colnames(mat.combined) %in% temp)])
+boxplot(combat.edata[, which(colnames(combat.edata) %in% temp)])
+
+genelist <- c("TNFRSF17", "CD38", "NCAM1", "SDC1", "TNFRSF13B", 
+                 "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+                 "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+                 "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+                 "FUT3", "CD70", "CD1D")
+
+### now need to annotate
+### Annotate with biomart
+mart <- useMart("ENSEMBL_MART_ENSEMBL")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- getBM(mart=mart, 
+                     attributes=c("illumina_humanht_12_v4", "hgnc_symbol"), 
+                     filter="illumina_humanht_12_v4", 
+                     values=rownames(mat.combined), 
+                     uniqueRows=TRUE)
+### look up what the illumina probe name is for 24 targets
+annotLookup <- getBM(mart=mart, 
+                     attributes=c("illumina_humanht_12_v4", "hgnc_symbol"), 
+                     filter="hgnc_symbol", 
+                     values=genelist, 
+                     uniqueRows=TRUE)
+dim(annotLookup) # 62     2
+head(annotLookup, 10)
+### ignore probes that don't have associated gene symbol
+ill.hgnc <- annotLookup[which(annotLookup$illumina_humanht_12_v4!=""), c("illumina_humanht_12_v4", "hgnc_symbol")]
+dim(ill.hgnc) # 41    2
+
+View(ill.hgnc)
+
+mat.combined.genes24 <- mat.combined[which(rownames(mat.combined) %in% ill.hgnc$illumina_humanht_12_v4), ]
+dim(mat.combined.genes24) # 40 155
+
+combat.genes24 <- combat.edata[which(rownames(combat.edata) %in% ill.hgnc$illumina_humanht_12_v4), ]
+dim(combat.genes24)
+
+### keep largest probe
+genes <- unique(ill.hgnc$hgnc_symbol)
+idx <- match(ill.hgnc$illumina_humanht_12_v4, rownames(combat.genes24))
+rownames(combat.genes24)[idx]
+combat.genes24 <- combat.genes24[na.omit(idx), ] # ILMN_3259146 doesn't exist in mat
+ill.hgnc <- ill.hgnc[-c(which(ill.hgnc$illumina_humanht_12_v4=="ILMN_3259146")), ] # remove that probe from annotation
+# match(rownames(combat.genes24), ill.hgnc$illumina_humanht_12_v4)
+all.equal(rownames(combat.genes24), ill.hgnc$illumina_humanht_12_v4)
+keep.idx <- sapply(genes, function(x) keep.largest2(x, ill.hgnc, combat.genes24)) 
+combat.keep <- combat.genes24[keep.idx, ]
+saveRDS(combat.keep, "~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/genes23_combat-norm_log2.rds")
+combat.keep <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/genes23_combat-norm_log2.rds")
+head(combat.keep)
+
+idx <- match(rownames(combat.keep), ill.hgnc$illumina_humanht_12_v4)
+head(rownames(combat.keep))
+head(ill.hgnc[idx, ])
+
+rownames(combat.keep) <- ill.hgnc$hgnc_symbol[idx]
+
+### select hscs and mm cells
+levels(pheno.type)
+
+combat.hsc.mm <- combat.keep[, which(pheno.type %in% c("Multiple myeloma cells", "Hematopoietic stem cells"))]
+head(combat.hsc.mm)
+pheno.hsc.mm <- factor(pheno.type[which(pheno.type %in% c("Multiple myeloma cells", "Hematopoietic stem cells"))])
+
+all.equal(colnames(combat.hsc.mm), as.character(names(pheno.hsc.mm)))
+### wrangle data
+d <- data.frame(Genes=rownames(combat.hsc.mm), combat.hsc.mm)
+head(d[, 1:5])
+dd <- d %>% gather(Factor, Expression, -Genes)
+head(dd)
+
+
+## Factor right now are sample names, so change to actual factor names
+for(fac in levels(pheno.hsc.mm)) {
+  dd$Factor[which(dd$Factor %in% names(pheno.hsc.mm)[pheno.hsc.mm==fac])] <- fac
+}
+dd$Factor <- factor(dd$Factor)
+levels(dd$Factor)
+## Re-level the factor according to order given in group
+dd$Factor <- factor(dd$Factor, levels=levels(pheno.hsc.mm))
+
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+# ## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+genes.order <- genes.order[-c(which(genes.order=="IGKC"))]
+droplevels(genes.order, reorder=FALSE)
+levels(dd$Genes)[levels(dd$Genes)=="TNFRSF17"] <- "BCMA"
+levels(dd$Genes)[levels(dd$Genes)=="NCAM1"] <- "CD56"
+levels(dd$Genes)[levels(dd$Genes)=="SDC1"] <- "CD138"
+levels(dd$Genes)[levels(dd$Genes)=="TNFRSF13B"] <- "TACI"
+dd$Genes <- factor(dd$Genes, levels=genes.order)
+saveRDS(dd, "~/Downloads/Rshiny_cell-markers/Rdata/plotting/dd_hsc-vs-mm_gse76340_boxplots.rds")
+# dd$Genes <- reorder(factor(dd$Genes), -dd$Expression) # re-order by expression
+### plot - CHANGE fill as needed
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig3/ComBat_cancer-hsc_boxplot.tiff", res = 300, width = 10, height = 7, units = "in")
+ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  geom_boxplot(notch=FALSE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  # ylim(-10, 20) +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle=0, size=10)) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) + 
+  # theme(axis.title = element_text(size=12)) +
+  theme(axis.text.x = element_text(angle=90)) +
+  theme(legend.position="right") +
+  ggtitle(plot.title) +
+  ylab("log2(Expression)") +
+  xlab("")
+dev.off()
+
+### calculate MM/HSC ratio
+combat.mm.hsc.ratio <- NULL
+for(probe in rownames(combat.keep)) {
+  ratio <- log2(mean(combat.keep[probe, which(pheno.type %in% "Multiple myeloma cells")]) / mean(combat.keep[probe, which(pheno.type %in% "Hematopoietic stem cells")]))
+  combat.mm.hsc.ratio <- rbind(combat.mm.hsc.ratio, c(probe, ratio))
+}
+combat.mm.hsc.ratio
+
+idx <- match(combat.mm.hsc.ratio[, 1], ill.hgnc$illumina_humanht_12_v4)
+head(combat.mm.hsc.ratio[, 1])
+head(ill.hgnc[idx, ])
+
+combat.mm.hsc.ratio[, 1] <- ill.hgnc$hgnc_symbol[idx]
+
+combat.ratio <- data.frame(Genes=combat.mm.hsc.ratio[, 1], Ratio=as.numeric(combat.mm.hsc.ratio[, 2]))
+str(combat.ratio)
+
+### plot
+# mat <- combat.ratio
+# df <- data.frame(Genes=names(mat), Diff=mat)
+df <- combat.ratio
+df$Genes <- reorder(df$Genes, df$Ratio) # order by difference
+df$Color <- ifelse(df$Ratio > 0, "#CA0020", "#0571B0") # red for positive difference, blue for negative difference
+
+levels(combat.ratio$Genes)[levels(combat.ratio$Genes)=="TNFRSF17"] <- "BCMA"
+levels(combat.ratio$Genes)[levels(combat.ratio$Genes)=="NCAM1"] <- "CD56"
+levels(combat.ratio$Genes)[levels(combat.ratio$Genes)=="SDC1"] <- "CD138"
+levels(combat.ratio$Genes)[levels(combat.ratio$Genes)=="TNFRSF13B"] <- "TACI"
+
+## plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig3/new_ComBat_cancer-hsc_barplot.tiff", res = 300, width = 7, height = 5, units = "in")
+ggplot(df, aes(x=Genes, y=Ratio)) +
+  geom_bar(stat="identity", fill=df$Color) +
+  coord_flip() +
+  theme_pubr() +
+  xlab("") +
+  ylab("log2(MM/HSC)")
+dev.off()
+
+```
+
+
+Non-combat corrected data
+```{r}
+
+##############
+### keep largest probe
+genes <- unique(ill.hgnc$hgnc_symbol)
+idx <- match(ill.hgnc$illumina_humanht_12_v4, rownames(mat.combined.genes24))
+rownames(mat.combined.genes24)[idx]
+mat.combined.genes24 <- mat.combined.genes24[na.omit(idx), ] # ILMN_3259146 doesn't exist in mat
+ill.hgnc <- ill.hgnc[-c(which(ill.hgnc$illumina_humanht_12_v4=="ILMN_3259146")), ] # remove that probe from annotation
+# match(rownames(combat.genes24), ill.hgnc$illumina_humanht_12_v4)
+all.equal(rownames(mat.combined.genes24), ill.hgnc$illumina_humanht_12_v4)
+keep.idx <- sapply(genes, function(x) keep.largest2(x, ill.hgnc, mat.combined.genes24)) 
+combined.keep <- mat.combined.genes24[keep.idx, ]
+
+### select hscs and mm cells
+mat.mm.hsc.ratio <- NULL
+for(probe in rownames(combined.keep)) {
+  ratio <- log2(mean(combined.keep[probe, which(pheno.type %in% "Multiple myeloma cells")]) / mean(combined.keep[probe, which(pheno.type %in% "Hematopoietic stem cells")]))
+  mat.mm.hsc.ratio <- rbind(mat.mm.hsc.ratio, c(probe, ratio))
+}
+mat.mm.hsc.ratio
+
+idx <- match(mat.mm.hsc.ratio[, 1], ill.hgnc$illumina_humanht_12_v4)
+head(mat.mm.hsc.ratio[, 1])
+head(ill.hgnc[idx, ])
+write.csv(ill.hgnc[idx, ], "~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/GSE76340_Illumina_probes.csv", row.names=FALSE)
+
+mat.mm.hsc.ratio[, 1] <- ill.hgnc$hgnc_symbol[idx]
+
+mat.ratio <- data.frame(Genes=mat.mm.hsc.ratio[, 1], Ratio=as.numeric(mat.mm.hsc.ratio[, 2]))
+str(mat.ratio)
+
+levels(mat.ratio$Genes)[levels(mat.ratio$Genes)=="TNFRSF17"] <- "BCMA"
+levels(mat.ratio$Genes)[levels(mat.ratio$Genes)=="NCAM1"] <- "CD56"
+levels(mat.ratio$Genes)[levels(mat.ratio$Genes)=="SDC1"] <- "CD138"
+levels(mat.ratio$Genes)[levels(mat.ratio$Genes)=="TNFRSF13B"] <- "TACI"
+
+### plot
+# mat <- combat.ratio
+# df <- data.frame(Genes=names(mat), Diff=mat)
+df <- mat.ratio # combat.ratio OR mat.ratio
+df$Genes <- reorder(df$Genes, df$Ratio) # order by difference
+df$Color <- ifelse(df$Ratio > 0, "#CA0020", "#0571B0") # red for positive difference, blue for negative difference
+
+saveRDS(df, "~/Downloads/Rshiny_cell-markers/Rdata/plotting/df_hsc-vs-mm_gse76340.rds")
+
+## plot
+tiff(filename="~/Downloads/Rshiny_cell-markers/Rplots/final_fig3/new_cancer-hsc_barplot_italics.tiff", res = 300, width = 7, height = 5, units = "in")
+ggplot(df, aes(x=Genes, y=Ratio)) +
+  geom_bar(stat="identity", fill=df$Color) +
+  coord_flip() +
+  theme_pubr() +
+  theme(axis.text.y = element_text(face="italic")) +
+  xlab("") +
+  ylab("log2(MM/HSC)")
+dev.off()
+```
+
+
+```{r function: keep.largest}
+## a function to get index with highest sum in duplicated genes
+keep.largest2 <- function(genename, annots, genematrix) {
+  # get index of rows in matrix that match name
+  probe <- annots$illumina_humanht_12_v4[which(annots$hgnc_symbol==genename)]
+  idxs <- grep(probe, rownames(genematrix), value=FALSE)
+  # print(length(idxs))
+  
+  if(length(idxs) > 1) {
+    # make matrix with indices
+    mat <- genematrix[idxs, ]
+    rownames(mat) <- idxs
+    mat.sums <- rowSums(mat, na.rm=TRUE)
+    # get index with highest sum
+    max.idx <- rownames(mat)[which(mat.sums==max(mat.sums))]
+  } else {
+    max.idx <- idxs
+  }
+  
+  return(as.numeric(max.idx))
+}
+```
+
+
+
+Raw data
+```{r}
+mat.unnorm <- read.csv("~/Downloads/Rshiny_cell-markers/Rdata/hsc_vs_mm/GSE76340_non-normalized_data.txt", stringsAsFactors=FALSE, sep="\t")
+dim(mat.unnorm)
+mat.unnorm[1:5, 1:5]
+
+samp.names <- c(as.character(pheno@data$description), as.character(pheno2@data$description))
+samp.names <- gsub('-', '\\.', samp.names)
+head(samp.names)
+
+head(colnames(mat.unnorm))
+
+temp <- gsub('X', '', colnames(mat.unnorm))
+head(temp)
+colnames(mat.unnorm) <- temp
+
+match(samp.names, colnames(mat.unnorm))
+match(colnames(mat.unnorm), samp.names)
+
+
+```

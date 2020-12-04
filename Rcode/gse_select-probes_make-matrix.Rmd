@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Import genes-probe key
+```{r}
+key <- read.csv("~/Downloads/Rshiny_cell-markers/Rdata/genes_probe_key2.csv", stringsAsFactors=FALSE)
+tail(key)
+
+nm.ids <- read.csv("~/Documents/osu/research/REFERENCE/housekeeping_genes/nm_IDs_microarray_RNAseq.csv", stringsAsFactors=FALSE)
+intersect(nm.ids$Microarray, nm.ids$RNAseq)
+ # [1] "NM_000291" "NM_000975" "NM_000994" "NM_001961" "NM_002714" "NM_002808"
+ # [7] "NM_002809" "NM_004309" "NM_004898" "NM_005566" "NM_007363"
+
+library(pdInfoBuilder)
+cdf <- cdf2table("~/Documents/osu/research/REFERENCE/BrainArray/version24/HGU133Plus2_Hs_ENSG_24.0.0/HGU133Plus2_Hs_ENSG.cdf")
+```
+
+GSE31161: primary MM - Arkansas (newly diagnosed and relapsed pts)
+```{r}
+library(GEOquery)
+library(biomaRt)
+
+gse.arkansas <- getGEO("GSE31161")
+head(gse.arkansas$GSE31161_series_matrix.txt.gz@assayData$exprs[, 1:6])
+
+### expression matrix for baseline and relapse (n=1038)
+gset <- gse.arkansas[[1]]
+gse.arkansas.expr <- exprs(gset)
+dim(gse.arkansas.expr) # 54675  1038
+tail(colSums(gse.arkansas.expr)) 
+
+###! REMOVE LAST THREE SAMPLES FROM DATA: they are empty
+gse.arkansas.expr <- gse.arkansas.expr[, -c(1036:1038)]
+dim(gse.arkansas.expr)
+
+### get pheno data and remove last three samples
+pheno <- phenoData(gset)
+str(pheno@data)
+pheno <- pheno@data[which(pheno@data$geo_accession %in% colnames(gse.arkansas.expr)), ]
+dim(pheno) # 1035   36
+
+### using gene-probe key, determine expression order of genes with 2+ probe IDs
+dup.genes <- c("CD56", "LY9", "CD47", "NDUFA2", "POLR2L")
+gene.probe <- key[which(key$Genes %in% dup.genes), ]
+probe.expr.mat <- gse.arkansas.expr[which(rownames(gse.arkansas.expr) %in% gene.probe$Probe_ID), ]
+
+for(gene in unique(gene.probe$Genes)) {
+  print(gene)
+  probes <- gene.probe$Probe_ID[gene.probe$Genes==gene]
+  print(sort(rowMeans(probe.expr.mat[which(rownames(probe.expr.mat) %in% probes), ])))
+}
+
+### take look at expression of housekeeping genes
+housekeeping <- c("PPP2R1A", "ATP6V1G1")
+gene.probe <- key[which(key$Genes %in% housekeeping), ]
+probe.expr.mat <- gse.arkansas.expr[which(rownames(gse.arkansas.expr) %in% gene.probe$Probe_ID), ]
+
+housekeeping <- c("1557910_at", "214359_s_at", "200064_at")
+probe.expr.mat <- gse.arkansas.expr[which(rownames(gse.arkansas.expr) %in% housekeeping), ]
+rowMeans(probe.expr.mat)
+mean(probe.expr.mat)
+
+slamf7 <- c("219159_s_at", "234306_s_at", "222838_at")
+probe.mat <- gse.arkansas.expr[which(rownames(gse.arkansas.expr) %in% slamf7), ]
+rowMeans(probe.mat)
+
+### make new matrix for Arkansas data
+ark.mat <- gse.arkansas.expr[which(rownames(gse.arkansas.expr) %in% key$HGU133Plus2), ]
+idx <- match(rownames(ark.mat), key$HGU133Plus2)
+key$HGU133Plus2[idx]
+rownames(ark.mat)
+rownames(ark.mat) <- key$Genes[idx]
+saveRDS(ark.mat, "~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_select-probes_expr_37.rds")
+ark.mat.log2 <- log2(ark.mat)
+saveRDS(ark.mat.log2, "~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_select-probes_expr_log2_37.rds")
+
+### what's different between old and new probe matrix?
+ark.mat.old <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_arkansas.rds")
+all.equal(colnames(ark.mat.log2), colnames(ark.mat.old)) # TRUE
+
+dim(ark.mat.log2)
+rowMeans(ark.mat.log2)
+
+dim(ark.mat.old)
+rowMeans(ark.mat.old)
+
+test.test <- gse.arkansas.expr[which(rownames(gse.arkansas.expr) %in% c("206641_at")), ]
+head(test.test)
+```
+
+GSE9782: primary MM - Boston (relapsed pts)
+Samples taken before bortezomib treatment
+```{r}
+gse.boston <- getGEO("GSE9782")
+summary(gse.boston)
+
+### get expression matrix
+gset <- gse.boston[[1]] # GPL96, NOTE: GPL97 is missing some genes of interest
+gse.boston.expr <- exprs(gset)
+dim(gse.boston.expr) # 22283   264
+head(gse.boston.expr[, 1:6])
+
+### using gene-probe key, determine expression order of genes with 2+ probe IDs
+dup.genes <- c("CD56", "LY9", "CD47", "NDUFA2", "POLR2L")
+gene.probe <- key[which(key$Genes %in% dup.genes), ]
+probe.expr.mat <- gse.boston.expr[which(rownames(gse.boston.expr) %in% gene.probe$Probe_ID), ]
+
+for(gene in unique(gene.probe$Genes)) {
+  print(gene)
+  probes <- gene.probe$Probe_ID[gene.probe$Genes==gene]
+  print(sort(rowMeans(probe.expr.mat[which(rownames(probe.expr.mat) %in% probes), ])))
+}
+
+### take look at expression of housekeeping genes
+housekeeping <- c("PPP2R1A", "ATP6V1G1")
+gene.probe <- key[which(key$Genes %in% housekeeping), ]
+probe.expr.mat <- gse.boston.expr[which(rownames(gse.boston.expr) %in% gene.probe$Probe_ID), ]
+rowMeans(probe.expr.mat)
+
+housekeeping <- c("214359_s_at", "200064_at")
+probe.expr.mat <- gse.boston.expr[which(rownames(gse.boston.expr) %in% housekeeping), ]
+rowMeans(probe.expr.mat)
+mean(probe.expr.mat)
+
+### make new matrix for Boston data
+bos.mat <- gse.boston.expr[which(rownames(gse.boston.expr) %in% key$HGU133A), ]
+idx <- match(rownames(bos.mat), key$HGU133A)
+key$HGU133A[idx]
+rownames(bos.mat)
+rownames(bos.mat) <- key$Genes[idx]
+saveRDS(bos.mat, "~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/boston_select-probes_expr_37.rds")
+bos.mat.log2 <- log2(bos.mat)
+saveRDS(bos.mat.log2, "~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/boston_select-probes_expr_log2_37.rds")
+
+### what's different between old and new probe matrix?
+bos.mat.old <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/genes24_boston.rds")
+all.equal(colnames(bos.mat.log2), colnames(bos.mat.old)) # TRUE
+
+dim(bos.mat.log2)
+rowMeans(bos.mat.log2)
+
+dim(bos.mat.old)
+rowMeans(bos.mat.old)
+```

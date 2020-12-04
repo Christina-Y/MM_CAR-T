@@ -1,0 +1,185 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(purrr)
+
+RowToNames <- function(df, row.num = 1) {
+  col.names <- df[row.num,]
+  
+  df %<>% set_names(col.names)
+  
+  df[-row.num,]
+}
+```
+
+```{r}
+num <- 44
+
+directory <- paste0("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/mod", num, "/")
+
+enrichr.results <- 
+  list.files(directory, full.names = TRUE, pattern = '*csv') %>%
+  map( ~ {
+		base <-
+			read.delim(.x, sep = ',', stringsAsFactors = FALSE, header = FALSE) %>%
+		  as_tibble %>%
+		  RowToNames
+  })
+
+### change adjusted p-val column from character to numeric
+for(i in 1:9) {
+  enrichr.results[[i]]$Adjusted.P.value <- as.numeric(enrichr.results[[i]]$Adjusted.P.value)
+}
+
+
+### select the significant Term & Adjusted.P.value columns
+sig.results <- sapply(enrichr.results, function(x) {
+  # print(x)
+  if(!is.null(x) & x$Adjusted.P.value < 0.1) {
+    return(data.frame(Term=x$Term[which(x$Adjusted.P.value < 0.1)],
+             Pval=x$Adjusted.P.value[which(x$Adjusted.P.value < 0.1)],
+             Genes=x$Genes[which(x$Adjusted.P.value < 0.1)]))
+  }
+})
+# sig.results[[9]]
+
+### Output results
+lapply(sig.results, function(x) write.table( data.frame(x), paste0("~/Downloads/Rshiny_cell-markers/Rtables/lmQCM_modules/module", num, "_enrichr.csv"), append= T, sep=',' ))
+
+### end code
+```
+
+
+Trying to automate
+```{r}
+mods <- c(1, 2, 3, 4, 5, 8, 9, 11, 13, 14, 15, 18, 20, 22, 23, 24, 25, 27, 28, 33, 34, 35, 37, 38, 39, 44, 47, 48, 50, 51)
+
+##### gets stuck at i = 9
+for(i in mods) {
+  num <- i
+  print(num)
+  
+  directory <- paste0("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/mod", num, "/")
+  
+  enrichr.results <- 
+    list.files(directory, full.names = TRUE, pattern = '*csv') %>%
+    map( ~ {
+      base <-
+        read.delim(.x, sep = ',', stringsAsFactors = FALSE, header = FALSE) %>%
+        as_tibble %>%
+        RowToNames
+    })
+  
+  ### change adjusted p-val column from character to numeric
+  for(i in 1:9) {
+    enrichr.results[[i]]$Adjusted.P.value <- as.numeric(enrichr.results[[i]]$Adjusted.P.value)
+  }
+  
+  
+  ### select the significant Term, Overlap, Adjusted.P.value, & Genes columns
+  sig.results <- sapply(enrichr.results, function(x) {
+    
+    ## if there is a 
+    if(length(is.na(x)) > 0) {
+      if(x$Adjusted.P.value < 0.1) {
+        return(data.frame(Term=x$Term[which(x$Adjusted.P.value < 0.1)],
+                          Enrichment=x$Overlap[which(x$Adjusted.P.value < 0.1)],
+                          Pval=x$Adjusted.P.value[which(x$Adjusted.P.value < 0.1)],
+                          Genes=x$Genes[which(x$Adjusted.P.value < 0.1)]))
+      }
+    }
+  })
+  
+  ### Output results
+  lapply(sig.results, function(x) write.table( data.frame(x), paste0("~/Downloads/Rshiny_cell-markers/Rtables/lmQCM_modules/module", num, "_enrichr.csv"), append= T, sep=',' ))
+}
+```
+
+```{r}
+mods <- c(1, 2, 3, 4, 5, 8, 9, 11, 13, 14, 15, 18, 20, 22, 23, 24, 25, 27, 28, 33, 34, 35, 37, 38, 39, 44, 47, 48, 50, 51)
+num <- 9
+
+directory <- paste0("~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/mod", num, "/")
+
+enrichr.results <- 
+  list.files(directory, full.names = TRUE, pattern = '*csv') %>%
+  map( ~ {
+		base <-
+			read.delim(.x, sep = ',', stringsAsFactors = FALSE, header = FALSE) %>%
+		  as_tibble %>%
+		  RowToNames
+  })
+
+### change adjusted p-val column from character to numeric
+for(i in 1:9) {
+  enrichr.results[[i]]$Adjusted.P.value <- as.numeric(enrichr.results[[i]]$Adjusted.P.value)
+}
+
+
+### select the significant Term, Overlap, Adjusted.P.value, & Genes columns
+sig.results <- sapply(enrichr.results, function(x) {
+  print(x)
+  # print(length(summary(x))==0 & x$Adjusted.P.value < 0.1)
+  print(length(is.na(x)))
+  if(length(is.na(x))==0)
+  {
+    print("true")
+  }
+  
+  if(length(is.na(x)) > 0) {
+    if(x$Adjusted.P.value < 0.1) {
+      return(data.frame(Term=x$Term[which(x$Adjusted.P.value < 0.1)],
+                        Enrichment=x$Overlap[which(x$Adjusted.P.value < 0.1)],
+                        Pval=x$Adjusted.P.value[which(x$Adjusted.P.value < 0.1)],
+                        Genes=x$Genes[which(x$Adjusted.P.value < 0.1)]))
+    }
+  }
+})
+# sig.results[[1]]
+
+### Output results
+lapply(sig.results, function(x) write.table( data.frame(x), paste0("~/Downloads/Rshiny_cell-markers/Rtables/lmQCM_modules/module", num, "_enrichr.csv"), append= T, sep=',' ))
+
+
+
+#### example code ####
+# blood.pooled.sample <-
+# 	list.files(directory, full.names = TRUE, pattern = '*csv') %>%
+# 	map( ~ {
+# 		base <-
+# 			read.delim(.x, sep = ',', stringsAsFactors = FALSE, header = FALSE) %>%
+# 			t %>%
+# 			as_data_frame %>%
+# 			RowToNames
+# 
+# 		vals <-
+# 			base %>%
+# 			select(-1) %>%
+# 			mutate_each(funs(as.numeric(.)))
+# 
+# 		hgnc <-
+# 			names(base)[[1]] %>%
+# 			str_split(' ') %>%
+# 			unlist %>%
+# 			head(1)
+# 
+# 		blood.master <-
+# 			base %>%
+# 			select(1) %>%
+# 			set_names('cell') %>%
+# 			mutate(cell = toupper(cell)) %>%
+# 			mutate(hgnc = hgnc) %>%
+# 			bind_cols(vals) %>%
+# 			arrange(hgnc, cell) %>%
+# 			mutate(cell = ifelse(is.na(cell), 'nan', cell)) %>%
+# 			gather(probe, exp, -cell, -hgnc) %>%
+# 			as_data_frame
+# 	})
+#### end example code
+```

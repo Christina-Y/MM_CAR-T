@@ -1,0 +1,146 @@
+---
+title: "Boxplots: MMRF stratified by clinical features"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r load_libraries}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyr)
+library(dplyr)
+library(survival)
+library(survminer)
+library(DescTools)
+
+`%notin%` <- Negate(`%in%`)
+
+filepath <- "~/Downloads/"
+```
+
+```{r boxplots}
+mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+mat[1:5, 1:5]
+
+### get gene expression of MR1
+gene <- c("RIPK1", "RIPK3")
+mat.exp <- mat[which(rownames(mat) %in% gene), ]
+head(mat.exp[, 1:5])
+
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/r_iss_factors.rds")
+## for R-ISS, change to roman numerals
+levels(group) <- c("I", "II", "III")
+
+legend.name <- "R-ISS"
+plot.title <- ""
+fact <- TRUE # Plotting by factors? TRUE or FALSE
+
+############# automated process #############
+### match up sample names
+all.equal(colnames(mat.exp), names(group)) # FALSE
+## if FALSE and dimensions of mat is larger than group:
+if(!(all.equal(colnames(mat.exp), names(group)) == TRUE)[1]) {
+  mat <- mat.exp[, which(colnames(mat.exp) %in% names(group))]
+  ## check again
+  all.equal(colnames(mat), names(group)) # TRUE
+} else {
+  mat <- mat.exp
+}
+
+### wrangle data
+d <- data.frame(Genes=rownames(mat), mat)
+# head(d[, 1:5])
+dd <- d %>% gather(Factor, Expression, -Genes)
+# head(dd)
+
+######### If there is a factor: #########
+fact <- TRUE
+if(fact) {
+  ## Factor right now are sample names, so change to actual factor names
+  for(fac in levels(group)) {
+    dd$Factor[which(dd$Factor %in% names(group)[group==fac])] <- fac
+  }
+  dd$Factor <- factor(dd$Factor)
+  levels(dd$Factor)
+  ## Re-level the factor according to order given in group
+  dd$Factor <- factor(dd$Factor, levels=levels(group))
+}
+
+levels(dd$Factor)
+
+########################
+###### boxplots ######
+### Save plot
+filename <- ""
+
+pdf(file=paste0(filepath, filename, ".pdf"), width=3.5, height=6)
+
+ncols <- ifelse(is.factor(dd$Factor), length(levels(dd$Factor)), 1) # returns num factors or 1
+mycolors <- colorRampPalette(brewer.pal(3, "Greys"))(ncols)
+##> re-order by expression, if more than one gene
+# dd$Genes <- reorder(factor(dd$Genes), -dd$Expression)
+### plot - CHANGE fill as needed
+ggplot(dd, aes(x=Genes, y=Expression, fill=Factor)) +
+  geom_boxplot(notch=TRUE, outlier.shape=TRUE, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors, name=legend.name) +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.text.x=element_text(face="italic")) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position="right") +
+  ggtitle(plot.title) +
+  ylab("log2(Expression)") +
+  xlab("")
+dev.off()
+```
+
+```{r stats}
+##############################
+###### calculate stats ######
+### ANOVA or t-test
+filename <- ""
+
+ttest.pvals <- NULL
+for(gene in unique(dd$Genes)){
+  dd.gene <- dd[dd$Genes==gene, ]
+  
+  ## specify statistical test to run based on number of factors:
+  if(length(levels(dd.gene$Factor))==2) {
+    #> t-test
+    test.t <- t.test(dd.gene$Expression ~ dd.gene$Factor)
+    test.t$p.value
+    
+    ttest.pvals <- rbind(ttest.pvals, c(gene, test.t$p.value))
+    
+  } 
+  else {
+    #> ANOVA
+    test.aov <- aov(dd.gene$Expression ~ dd.gene$Factor)
+    aov.pval <- summary(aov(test.aov))[[1]][["Pr(>F)"]][[1]]
+    
+    # if significant, then Dunnett's test
+    # pval is after adjustment for the multiple comparisons
+    if(aov.pval <= 0.05) {
+      print(paste("yes", gene))
+      
+      test.dunnett <- DunnettTest(x=dd.gene$Expression, 
+                                  g=dd.gene$Factor, 
+                                  control=levels(dd.gene$Factor)[1])
+      
+      write.csv(test.dunnett[[1]], file=paste0(filepath, filename, gene, "_dunnett.csv"))
+    }
+    
+  }
+}
+### process t-test pval table
+if(!is.null(ttest.pvals)) {
+  ttest.pvals <- data.frame(Genes=ttest.pvals[, 1],
+                            Pval=as.numeric(ttest.pvals[, 2]))
+  ttest.pvals$fdr <- p.adjust(ttest.pvals$Pval, method="fdr")
+  ttest.pvals
+  ttest.pvals$Genes[which(ttest.pvals$fdr < 0.05)]
+  
+  write.csv(ttest.pvals, file=paste0(filepath, filename, "t_test.csv"), row.names=FALSE)
+}
+```

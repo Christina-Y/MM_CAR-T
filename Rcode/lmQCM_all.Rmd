@@ -1,0 +1,328 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+save.image("~/Downloads/Rshiny_cell-markers/Rdata/Rdata_dump/lmQCM_correlations_enrichR_CAR-pipeline_Rdata_dump.Rda")
+```
+
+## Gene co-expression network analysis on all three datasets
+
+Load libraries
+```{r}
+library(lmQCM)
+library(reshape2)
+library(ggplot2)
+library(tidyverse)
+```
+
+<!--
+Arkansas
+```{r}
+mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/arkansas_annot_expr.rds")
+dim(mat)
+mat[1:5, 1:5]
+
+filepath <- "~/Documents/osu/Perna_lab/network_mining/arkansas/"
+
+### save locally: lmQCM output and correlation matrix
+ark.gamma60 <- modules
+ark.top.scc <- eig.markers.scc
+
+## this part quantifies top correlated genes & modules
+cutoff <- quantile(ark.top.scc, 0.90)
+top.scc <- ark.top.scc > cutoff
+colSums(top.scc)
+
+sum.top.mods <- rowSums(top.scc)
+names(sum.top.mods) <- c(1:length(sum.top.mods))
+sum.top.mods
+```
+
+Boston
+```{r}
+mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/boston_annot_expr.rds")
+
+filepath <- "~/Documents/osu/Perna_lab/network_mining/boston/"
+
+### save locally: lmQCM output and correlation matrix
+boston.gamma60 <- modules
+boston.top.scc <- eig.markers.scc
+
+## this part quantifies top correlated genes & modules
+cutoff <- quantile(boston.top.scc, 0.90)
+top.scc <- boston.top.scc > cutoff
+colSums(top.scc)
+
+sum.top.mods <- rowSums(top.scc)
+names(sum.top.mods) <- c(1:length(sum.top.mods))
+sum.top.mods
+```
+-->
+
+MMRF
+```{r}
+### logged matrix
+mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+### un-logged matrix
+# mat <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm.rds")
+
+filepath <- "~/Documents/osu/Perna_lab/network_mining/mmrf/enrichr/gamma60/"
+```
+
+### Run lmQCM
+```{r filter}
+### remove genes with lowest expression and variance
+## use lmQCM function fastFilter
+mat.filter <- fastFilter(mat, lowest_percentile_mean=0.2, lowest_percentile_variance=0.2)
+dim(mat.filter)
+```
+
+```{r lmQCM}
+### specify gamma level
+gam <- 0.60
+
+### RNA-seq data, when normalization=TRUE -- calculations took a long time... 
+# Calculating massive correlation coefficient ...
+# Number of Maximum Edges: 5158
+#  Calculation Finished.
+#  11 Modules before merging.
+# Error in mergedCluster[[i]] : subscript out of bounds
+modules <- lmQCM(mat.filter, gamma=gam, CCmethod="spearman", normalization=TRUE, minClusterSize=10)
+summary(modules@clusters.names)
+
+### are there any genes that belong to multiple modules?
+modules.merge <- unlist(modules@clusters.names)
+modules.merge.count <- sort(table(modules.merge), decreasing=TRUE)
+modules.merge.count[modules.merge.count > 1]
+
+saveRDS(modules, file=paste0(filepath, "rds/gamma", gam*100, "_mat_spearman_norm=FALSE.rds"))
+
+### load lmQCM results
+modules <- readRDS("~/Documents/osu/Perna_lab/network_mining/mmrf/rds/gamma60_log2-mat_spearman.rds")
+```
+
+### Correlate candidate genes with eigengene matrix
+```{r candidate genes}
+### get candidate gene matrix
+genes24 <- c("BCMA", "CD38", "CD56", "CD138", "TACI", 
+             "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+             "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+             "ICAM1", "CD74", "CD81", "CD86", "CD200", 
+             "IGKC","FUT3", "CD70", "CD1D") 
+
+## subset genes: get indices, can't use mat.filter b/c CD47 gets removed
+idxs <- sapply(genes24, function(x) grep(paste0("^", x, "$"), rownames(mat)))
+mat.genes24 <- mat[idxs, ] ## for logged RNA-seq
+# mat.genes24 <- log2(mat[idxs, ] + 1) ## for microarray
+dim(mat.genes24)
+mat.genes24[1:5, 1:5]
+```
+
+```{r eigengenes}
+### get eigengene matrix
+eig.mat <- modules@eigengene.matrix
+
+### if x and y are matrices, then the correlations are calculated between the columns of x and columns of y
+dim(eig.mat)
+dim(mat.genes24)
+## calc correlation coefficient
+eig.markers.scc <- abs(cor(t(eig.mat), t(mat.genes24), method="spearman"))
+dim(eig.markers.scc) ##> use this to make a heatmap
+saveRDS(eig.markers.scc, file="~/Documents/osu/Perna_lab/network_mining/mmrf/rds/eigengene_targets_corr.rds")
+ncols <- 10
+mycolors <- rev(colorRampPalette(brewer.pal(5, "YlOrBr"))(ncols))
+heatmap(eig.markers.scc, Colv=NA, Rowv=NA, col=mycolors, ylab="Modules")
+
+# eig.markers.scc[1:5, 1:5]
+summary(eig.markers.scc)
+# View(eig.markers.scc[, 1])
+
+cutoff <- quantile(eig.markers.scc, 0.95)
+top.scc <- eig.markers.scc > cutoff
+sum.top.scc <- colSums(top.scc)
+sum.top.scc
+
+sum.top.mods <- rowSums(top.scc)
+names(sum.top.mods) <- c(1:length(sum.top.mods))
+sum.top.mods
+singles <- sum.top.mods[which(sum.top.mods==1)]
+multiples <- sum.top.mods[which(sum.top.mods > 1)]
+
+### which genes do the single/multiple modules correlate with?
+cor.mods <- multiples
+for(i in 1:length(cor.mods)) {
+  ## get module number
+  n <- as.numeric(names(cor.mods)[i])
+  num.genes <- cor.mods[i]
+  
+  ## make matrix with module genes
+  mod.genes <- modules@clusters.names[[n]]
+  idxs <- sapply(mod.genes, function(x) grep(paste0("^", x, "$"), rownames(mat.filter)))
+  mat.mod <- mat.filter[idxs, ]
+  
+  ## calculate gene correlations with candidate genes
+  mat.scc <- abs(stats::cor(t(mat.genes24), t(mat.mod), method="spearman"))
+  mat.scc[1:5, 1:5]
+  # head(sort(rowMeans(mat.scc)), num.genes)
+  print(c(n, head(names(sort(rowMeans(mat.scc), decreasing=TRUE)), num.genes)))
+  # print(c(n, rownames(mat.scc)[which(rowMeans(mat.scc)==max(rowMeans(mat.scc)))]))
+}
+
+### get size of selected modules
+summary(modules@clusters.names)[as.numeric(names(multiples))]
+```
+
+### Plot correlation heatmap
+Can just run whole chunk after changing module number
+```{r}
+n <- 18
+gene <- "ICAM1" # can put multiple
+
+mod.genes <- modules@clusters.names[[n]]
+idxs <- sapply(mod.genes, function(x) grep(paste0("^", x, "$"), rownames(mat.filter)))
+mat.mod <- mat.filter[idxs, ] ## for logged RNA-seq
+# mat.mod <- log2(mat.filter[idxs, ] + 1) ## log doesn't seem to matter
+dim(mat.mod)
+
+# cor.mat <- cor(t(mat.genes24), t(mat.mod))
+# dim(cor.mat)
+
+### calculate PCC, taking absolute value of correlation
+mat.pcc <- abs(stats::cor(t(mat.genes24), t(mat.mod), method="pearson"))
+mat.scc <- abs(stats::cor(t(mat.genes24), t(mat.mod), method="spearman"))
+##> calculate SCC of module genes with specific marker:
+# mat.scc <- abs(stats::cor(mat.genes24[which(rownames(mat.genes24) %in% gene), ], t(mat.mod), method="spearman"))
+
+### keep upper triangle - not appropriate for non-square correlation matrices
+# mat.pcc[upper.tri(mat.pcc, diag=F)] <- NA
+# mat.scc[upper.tri(mat.scc, diag=F)] <- NA
+
+### order genes by correlation coeff
+cor.order <- rownames(mat.scc)[order(rowSums(mat.scc))]
+
+### melt
+melt.pcc <- melt(mat.pcc, na.rm=T)
+melt.scc <- melt(mat.scc, na.rm=T)
+##> if using one gene:
+# melt.scc$Var1 <- gene
+
+### plot
+cormat <- melt.scc # CHANGE
+## gene order by correlation coef
+cormat$Var1 <- factor(cormat$Var1, levels=cor.order)
+ggplot(cormat, aes(Var1, Var2)) +
+  geom_tile(aes(fill=value)) +
+  scale_fill_continuous(limits=c(0, 1), 
+                        na.value="white", low="steelblue", high="orange") +
+  #xlim(levels(genes.order)) +
+  labs(x="", y="", fill="abs(SCC)", title=paste0("Module ", n)) +
+  theme(axis.text.x=element_text(angle=90, vjust=0.5))
+  # add to theme when too many genes: axis.text.y=element_blank()
+
+rownames(mat.scc)[rowMeans(mat.scc) > 0.2]
+# plot(mat.pcc["FUT3", ])
+# plot(x=mat.genes24["FUT3", ], y=1:dim(mat.genes24)[2])
+
+```
+
+### Enrichr
+```{r}
+library(enrichR)
+
+options(stringAsFactors = FALSE)
+
+# dbs <- listEnrichrDbs()
+# dbs[order(dbs$geneCoverage, decreasing=TRUE), ]
+
+### choose databases
+dbs <- c("GO_Biological_Process_2018",
+         "GO_Cellular_Component_2018",
+         "GO_Molecular_Function_2018",
+         "KEGG_2019_Human",
+         "Reactome_2016",
+         "TRANSFAC_and_JASPAR_PWMs", 
+         "Chromosome_Location_hg19",
+         "Chromosome_Location", 
+         "Jensen_COMPARTMENTS")
+
+
+######## enrichr automated process ########
+# length(gamma70@clusters.names)
+cor.mods <- multiples
+for(i in 1:length(cor.mods)) {
+  ## get module number
+  mod <- as.numeric(names(cor.mods)[i])
+  
+  ## conduct enrichment
+  enriched <- enrichr(modules@clusters.names[[mod]], dbs)
+
+  ## creates folder if it doesn't exist
+  mainDir <- filepath
+  subDir <- paste0("enrichr/gamma60/mod", mod)
+  ifelse(!dir.exists(file.path(mainDir, subDir)), dir.create(file.path(mainDir, subDir)), FALSE) # FALSE if folder exists
+
+  ## print out as csv
+  sapply(names(enriched), function(x) write.csv(enriched[[x]], row.names=FALSE, file=paste0(mainDir, subDir, "/", x, ".csv")))
+}
+############################################
+
+###### run enrichr on one module ######
+# n <- 12
+enriched <- enrichr(modules@clusters.names[[n]], dbs)
+
+### print out results as csv
+mainDir <- filepath
+subDir <- paste0("enrichr/gamma60/mod", n)
+# creates mod folder if it doesn't exist
+ifelse(!dir.exists(file.path(mainDir, subDir)), dir.create(file.path(mainDir, subDir)), FALSE) # FALSE if folder exists
+# output as csv
+sapply(names(enriched), function(x) write.csv(enriched[[x]], row.names=FALSE, file=paste0(mainDir, subDir, "/", x, ".csv")))
+#######################################
+modules <- readRDS("~/Documents/osu/Perna_lab/network_mining/mmrf/rds/gamma60_log2-mat_spearman.rds")
+n <- 23
+modules@clusters.names[[n]]
+### output genes in a module to csv
+write.csv(modules@clusters.names[[n]], 
+          file=paste0(filepath, "mod_", n, ".csv"), row.names=FALSE)
+```
+
+Is correlation positive or negative?
+CD19: module 9
+```{r}
+######## module genes ########
+group <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+levels(group)
+### set up to get module genes:
+## read in modules
+modules <- readRDS("~/Documents/osu/Perna_lab/network_mining/mmrf/rds/gamma60_log2-mat_spearman.rds")
+## full mmrf expression matrix
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+## make matrix
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[9]], "CD19")), ]
+sort(rowMeans(mat))
+sort(cor(t(mat), method="spearman")["CD19", ]) # CD19 has positive correlation with module genes
+
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[23]], "ICAM1")), ]
+sort(rowMeans(mat))
+sort(cor(t(mat), method="spearman")["ICAM1", ]) ### ICAM1 has negative correlation with module genes
+
+mat <- mat[which(rownames(mat) %in% c(modules@clusters.names[[20]], "BCMA")), ]
+sort(rowMeans(mat))
+sort(cor(t(mat), method="spearman")["BCMA", ]) ### BCMA has negative correlation with module genes
+
+mat <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/mm_pts/mmrf_tmm_log2.rds")
+g <- c("FUT3", "NEK9", "SLC39A9", "ENTPD5", "ANGEL1", "MLH3")
+mat <- mat[which(rownames(mat) %in% g), ]
+rowMeans(mat)
+cor(t(mat), method="spearman")
+
+### calculate correlations in specific patient subsets
+mat.subset <- mat[, which(colnames(mat) %in% names(group))]
+cor(t(mat.subset), method="spearman")
+
+write.csv(modules@clusters.names[[11]], "~/Downloads/Rshiny_cell-markers/Rtables/lmQCM_modules/module11.csv", row.names=FALSE)
+```

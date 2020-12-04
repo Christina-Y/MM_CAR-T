@@ -1,0 +1,150 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup}
+library(ggplot2)
+library(RColorBrewer)
+library(tidyverse)
+library(ggpubr)
+library(grid)
+library(magrittr)
+
+`%notin%` <- Negate(`%in%`)
+
+source("~/Documents/osu/Perna_lab/MM_target_discovery/Rcode/calcFeatureFunctions.R")
+```
+
+Load data
+```{r}
+mat <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/mm_pts/genes24_mmrf_v2.rds")
+
+mat[1:5, 1:5]
+
+r.iss <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/r_iss_factors.rds")
+levels(r.iss) <- c("I", "II", "III")
+
+drivers <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/drivers_factors.rds")
+
+translocations <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/translocations_factors.rds")
+
+hrd <- readRDS(file="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rdata/factors/hrd_factors_all.rds")
+```
+
+Calculate mean expression value for each gene in each feature
+```{r}
+df.r.iss <- tidyExpressionData(mat = mat, group = r.iss)
+df.drivers <- tidyExpressionData(mat = mat, group = drivers)
+df.translocations <- tidyExpressionData(mat = mat, group = translocations)
+df.hrd <- tidyExpressionData(mat = mat, group = hrd)
+
+### combine into one table
+df.all <- bind_rows(df.r.iss, df.drivers, df.translocations, df.hrd)
+head(df.all)
+df.all$Factor <- factor(df.all$Factor)
+levels(df.all$Factor)
+
+## Re-level the factor according to order given in group
+df.all$Factor <- factor(df.all$Factor, levels=c(levels(r.iss), levels(translocations), levels(hrd), levels(drivers)))
+levels(df.all$Factor)
+```
+
+Plot heatmap
+```{r}
+### heatmap
+ncols <- 10
+mycolors <- colorRampPalette(brewer.pal(7, "RdBu"))(ncols)
+
+## order genes by expression:
+df.all$Genes <- reorder(df.all$Genes, df.all$Expression)
+fc.all$Genes <- reorder(fc.all$Genes, fc.all$log2FC)
+
+## remove IGKC from df
+sum(grepl("IGKC", df.all$Genes))
+df.all.rm.IGKC <- df.all[df.all$Genes %notin% "IGKC", ]
+df.all.rm.IGKC$Genes <- reorder(df.all.rm.IGKC$Genes, df.all.rm.IGKC$Expression)
+
+p <- ggplot(df.all.rm.IGKC, aes(y=Genes, x=Factor, fill=Expression)) +
+  geom_tile() +
+  # theme_pubr() + # doesn't look good when used with coord_fixed()
+  coord_fixed() +
+  scale_fill_gradientn(colours = rev(mycolors), name = "log2(expr)") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme(axis.text.y = element_text(face = "italic")) +
+  xlab("") + 
+  ylab("")
+p
+
+
+q <- ggplot(df.all.rm.IGKC, aes(x=Genes, y=Factor, fill=Expression)) +
+  geom_tile() +
+  # theme_pubr() + # doesn't look good when used with coord_fixed()
+  coord_fixed() +
+  scale_fill_gradientn(colours = rev(mycolors), name = "log2(expr)") +
+  theme(axis.text.x = element_text(face = "italic", angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_y_discrete(limits = rev(levels(df.all.rm.IGKC$Factor))) +
+  xlab("") + 
+  ylab("")
+q
+
+### horizontal
+p.fc <- ggplot(fc.all, aes(x=Genes, y=Factor, fill=log2FC)) +
+  geom_tile() +
+  # theme_pubr() + # doesn't look good when used with coord_fixed()
+  coord_fixed() +
+  scale_fill_gradientn(colours = rev(mycolors), name = "log2(FC)") +
+  theme(axis.text.x = element_text(face = "italic", angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_y_discrete(limits = rev(levels(fc.all$Factor))) +
+  xlab("") + 
+  ylab("")
+p.fc
+
+### vertical
+p.fc <- ggplot(fc.all, aes(x=Factor, y=Genes, fill=log2FC)) +
+  geom_tile() +
+  # theme_pubr() + # doesn't look good when used with coord_fixed()
+  coord_fixed() +
+  scale_fill_gradientn(colours = rev(mycolors), name = "log2(FC)") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme(axis.text.y = element_text(face = "italic")) +
+  xlab("") + 
+  ylab("")
+p.fc
+
+### save plot
+tiff(filename="~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rplots/final_fig1/heatmap_1F_fc-vertical.tiff", res = 300, width = 7, height = 7, units = "in")
+
+p.fc
+
+dev.off()
+```
+
+
+Calculate fold change
+```{r}
+outfile <- "~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rtables/updated_stats/fold_change/R-ISS"
+fc.r.iss <- calcLogFC(df.r.iss, outfile)
+
+outfile <- "~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rtables/updated_stats/fold_change/translocations"
+fc.translocations <- calcLogFC(df.translocations, outfile)
+
+outfile <- "~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rtables/updated_stats/fold_change/hrd"
+fc.hrd <- calcLogFC(df.hrd, outfile)
+
+outfile <- "~/Documents/osu/Perna_lab/Rshiny_cell-markers/Rtables/updated_stats/fold_change/drivers"
+fc.drivers <- calcLogFC(df.drivers, outfile)
+
+### combine into one table
+fc.all <- bind_rows(fc.r.iss, fc.translocations, fc.hrd, fc.drivers)
+fc.all$Factor <- factor(fc.all$Factor)
+levels(fc.all$Factor)
+
+## Re-level the factor according to order given in group
+fc.all$Factor <- factor(fc.all$Factor, levels=c(levels(r.iss), levels(translocations), levels(hrd), levels(drivers)))
+levels(fc.all$Factor)
+```
+
+

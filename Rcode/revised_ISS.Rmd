@@ -1,0 +1,347 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+MMRF differential gene expression between groups using edgeR:
+Revised ISS (need to classify)
+Translocations
+Number of gene drivers
+
+```{r}
+library(ggplot2)
+library(edgeR)
+library(RColorBrewer)
+library(tidyr)
+```
+
+Load annotation data and define R-ISS
+```{r}
+annotation <- read.csv("~/Downloads/MM GEP dataset/MMRF RNAseq/MMRF_annotation_ONLY.csv")
+head(annotation[, 1:6])
+### ISS stage
+table(annotation$D_ISS)
+### chromosomal abnormality
+table(annotation$Translocation_Summary)
+### quantify del(17p) loss using TP53
+# Copy number for this significantly copy-number-affected gene (-2 = LOH, 0=biallelic deletion, 1=1 copy, 2=2 copies, 3=gain, 4=amplification)
+table(annotation$TP53_Loss)
+table(annotation$BI_TP53) # this info doesn't match TP53_Loss - why?
+
+### get ldh
+ldh <- read.csv("~/Downloads/Rshiny_cell-markers/datasets/mmrf_IA13_ldh.csv")
+head(ldh)
+## get patient ID, baseline visits, and ldh levels
+ldh.baseline <- ldh[grepl(".+_1$", ldh$SPECTRUM_SEQ), ] # select _1 baseline samples
+ldh.baseline <- ldh.baseline[, c("PUBLIC_ID", "VJ_INTERVAL", "D_LAB_chem_ldh", "LDH_level")]
+ldh.baseline <- ldh.baseline[ldh.baseline$VJ_INTERVAL=="Baseline", ]
+head(ldh.baseline)
+## drop patients with NA ldh levels
+ldh.baseline <- ldh.baseline[!is.na(ldh.baseline$D_LAB_chem_ldh), ]
+head(ldh.baseline)
+
+### match ldh patients with annotation patients
+## get intersection of patient names
+pat.intersect <- intersect(annotation$Patient, ldh.baseline$PUBLIC_ID) # 614
+## MMRF patient annotation
+annotation.subset <- annotation[which(annotation$Patient %in% pat.intersect), ]
+annotation.subset <- annotation.subset[order(annotation.subset$Patient), ]
+ldh.subset <- ldh.baseline[which(ldh.baseline$PUBLIC_ID %in% pat.intersect), ]
+ldh.subset <- ldh.subset[order(ldh.subset$PUBLIC_ID), ]
+saveRDS(ldh.subset, file="~/Downloads/Rshiny_cell-markers/datasets/mmrf_ldh_baseline.rds")
+write.csv(ldh.subset, file="~/Downloads/Rshiny_cell-markers/datasets/mmrf_ldh_baseline.csv", row.names=FALSE)
+
+## check if patient order is same
+all.equal(as.character(ldh.subset$PUBLIC_ID), as.character(annotation.subset$Patient)) # TRUE
+## build revised ISS table
+r.iss <- data.frame(Patient=annotation.subset$Patient, ISS=annotation.subset$D_ISS, Translocation=annotation.subset$Translocation_Summary, CNA_17p=annotation.subset$TP53_Loss, LDH=ldh.subset$LDH_level, LDH_quant=ldh.subset$D_LAB_chem_ldh)
+head(r.iss)
+r.iss$LDH <- factor(r.iss$LDH)
+table(r.iss$LDH)
+# High    Low Normal 
+#   82    174    358 
+hist(r.iss$LDH_quant)
+saveRDS(r.iss, file="~/Downloads/Rshiny_cell-markers/datasets/mmrf_revised_iss.rds")
+```
+
+Revised ISS stages:
+Stage 3:
+* ISS stage 3
+* either <del(17p) or t(4;14), or t(14;16)> or <high LDH>
+Stage 1:
+* ISS stage 1
+* absence of high risk CA (del(17p) or t(4;14), or t(14;16))
+* normal LDH
+Stage 2:
+* Neither R-ISS stage 1 or 3
+```{r}
+### identify patients with high-risk CA (chromosomal abnormalities)
+table(r.iss$Translocation)
+a <- r.iss$Patient[which(r.iss$Translocation=="t(4;14)" | r.iss$Translocation=="t(14;16)")]
+table(r.iss$CNA_17p)
+b <- r.iss$Patient[which(r.iss$CNA_17p==-2 | r.iss$CNA_17p==1)]
+length(intersect(a, b)) # 8 patients that have a translocation AND tp53 loss
+CA.high <- union(a, b) # 142 patients have either translocation or tp53 loss
+
+### identify patients with high ldh
+table(r.iss$LDH)
+LDH.high <- r.iss$Patient[which(r.iss$LDH=="High")] # 82
+
+### identify patients with ISS stages
+## total 614 patients
+table(r.iss$ISS)
+ISS.1 <- r.iss$Patient[which(r.iss$ISS==1)]
+ISS.3 <- r.iss$Patient[which(r.iss$ISS==3)]
+## R-ISS stage 3
+r.iss.3 <- intersect(ISS.3, union(CA.high, LDH.high)) # 59
+## R-ISS stage 1 
+ldh.not.high <- r.iss$Patient[!r.iss$Patient %in% LDH.high] # 532
+ca.not.high <- r.iss$Patient[!r.iss$Patient %in% CA.high] # 472
+r.iss.1 <- intersect(ISS.1, intersect(ldh.not.high, ca.not.high)) # 160
+## R-ISS stage 2
+r.iss.2 <- r.iss$Patient[!r.iss$Patient %in% union(r.iss.3, r.iss.1)] # 395
+
+# How does staging compare to other factors?
+table(annotation$IMWG_Risk)
+imwg.low <- annotation$Patient[annotation$IMWG_Risk=="Low Risk"]
+length(intersect(imwg.low, r.iss.1)) # 39
+length(intersect(r.iss.3, annotation$Patient[annotation$IMWG_Risk=="High Risk"])) # 29
+# compare to old ISS (new/old)
+length(intersect(r.iss.1, r.iss$Patient[r.iss$ISS==1])) # 160/220
+length(intersect(r.iss.2, r.iss$Patient[r.iss$ISS==2])) # 395/218
+length(intersect(r.iss.3, r.iss$Patient[r.iss$ISS==3])) # 59/161
+table(r.iss$ISS)
+length(r.iss.3)
+# NOTE: reason why old ISS doesn't add up to 614 is that there are 15 NA's
+# what are the R-ISS proportions and how do they compare to literature?
+# -> R-ISS 1: 160/614 = 26.1%
+# -> R-ISS 2: 395/614 = 60.3%
+# -> R-ISS 3: 59/614 = 9.6%
+# percentages are close to supplemental table 2 in this paper: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5394955/
+
+## add R-ISS to r.iss dataframe
+r.iss.concat <- data.frame(Patients=c(as.character(r.iss.1), as.character(r.iss.2), as.character(r.iss.3)),
+                          R.ISS=factor(c(rep(1, length(r.iss.1)),
+                                  rep(2, length(r.iss.2)),
+                                  rep(3, length(r.iss.3)))))
+str(r.iss.concat$Patients)
+
+str(r.iss$Patient)
+
+length(intersect(r.iss.concat$Patients, r.iss$Patient )) # 614
+
+### add R-ISS to data frame
+test <- r.iss.concat$Patients[match(r.iss$Patient, r.iss.concat$Patients)]
+all.equal(as.character(test), as.character(r.iss$Patient)) # TRUE
+r.iss$R_ISS <- r.iss.concat$R.ISS[match(r.iss$Patient, r.iss.concat$Patients)]
+head(r.iss)
+```
+
+Run edgeR for differential expression using R-ISS stage 1 vs stage 3
+Start with count data, match patient names
+```{r}
+mmrf.counts <- readRDS(file="~/Downloads/Rshiny_cell-markers/salmon.gene.counts.rds")
+# mmrf.counts <- read.csv("~/Downloads/mmrf_WIP/mmrf_rnaseq/salmonE74cDNA_counts_baseline.csv", row.names=1) # only adds 14 more patients
+
+dim(mmrf.counts) # 25,973 x 647
+head(mmrf.counts[, 1:6])
+
+## get intersection of patient names
+pat.intersect <- intersect(colnames(mmrf.counts), as.character(r.iss$Patient)) # 467, 481
+## MMRF patient annotation
+mmrf.counts.subset <- mmrf.counts[, which(colnames(mmrf.counts) %in% pat.intersect)]
+mmrf.counts.subset <- mmrf.counts.subset[, order(colnames(mmrf.counts.subset))]
+r.iss.subset <- r.iss[which(r.iss$Patient %in% pat.intersect), ]
+r.iss.subset <- r.iss.subset[order(r.iss.subset$Patient), ]
+# check if patient names are same
+all.equal(colnames(mmrf.counts.subset), as.character(r.iss.subset$Patient)) # TRUE
+saveRDS(mmrf.counts.subset, file="~/Downloads/Rshiny_cell-markers/datasets/mmrf_salmon_gene_counts_matched_r-iss.rds")
+saveRDS(r.iss.subset, file="~/Downloads/Rshiny_cell-markers/datasets/r-iss_matched.rds")
+
+### save just R-ISS info as factor
+r.iss.factor <- r.iss.subset$R_ISS
+names(r.iss.factor) <- r.iss.subset$Patient
+head(r.iss.factor)
+saveRDS(r.iss.factor, file="~/Downloads/Rshiny_cell-markers/Rdata/factors/r_iss_factors.rds")
+```
+
+<!--
+Now run edgeR
+```{r}
+library(edgeR)
+varr.logic <- which(r.iss.subset$R_ISS==1 | r.iss.subset$R_ISS==3) # 172
+varr <- r.iss.subset$R_ISS[varr.logic]
+table(varr)
+counts.varr <- mmrf.counts.subset[, varr.logic]
+## use full R-ISS dataset (n=467)
+varr <- r.iss.subset$R_ISS
+counts.varr <- mmrf.counts.subset
+##
+dim(counts.varr) # 25,973 x 172
+y <- DGEList(counts=counts.varr, group=varr)
+y <- calcNormFactors(y)
+y <- estimateCommonDisp(y)
+y <- estimateTagwiseDisp(y)
+fit.edgeR.iss <- exactTest(y)
+edgeR.table.iss <- fit.edgeR.iss$table
+edgeR.table.iss$fdr <- p.adjust(edgeR.table.iss$PValue, method="fdr")
+head(edgeR.table.iss)
+genes20 <- c("TNFRSF17", "CD38", "NCAM1", "SDC1", "TNFRSF13B", 
+             "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+             "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+             "ICAM1", "CD74", "CD81", "CD86", "CD200")
+
+# need to subset genes: get indices
+idxs <- sapply(genes20, function(x) grep(paste0("^", x, "$"), rownames(edgeR.table.iss)))
+genes20.fit.edgeR.iss <- edgeR.table.iss[idxs, ]
+genes20.fit.edgeR.iss[order(genes20.fit.edgeR.iss$fdr), ]
+genes20.fit.edgeR.iss[genes20.fit.edgeR.iss$fdr < 0.05, ]
+genes.de <- rownames(genes20.fit.edgeR.iss)[genes20.fit.edgeR.iss$fdr < 0.05]
+# 5 genes differentially expressed (1 v 3), 1 DE (all)
+### save r-iss 1 vs 3
+table1 <- genes20.fit.edgeR.iss
+table1[which(table1$fdr < 0.05), ]
+table2 <- genes20.fit.edgeR.iss
+table2[which(table2$fdr < 0.05), ]
+all.equal(table1, table2)
+
+### pull out expression table (r-iss 1 vs 3)
+iss.tmm <- cpm(y, normalized.lib.size=TRUE, log=TRUE)
+dim(iss.tmm) # 25973 x 172
+idxs <- sapply(genes20, function(x) grep(paste0("^", x, "$"), rownames(iss.tmm)))
+genes20.iss <- iss.tmm[idxs, ]
+genes20.iss[1:5, 1:5]
+### pull out expression table (all patients)
+iss.tmm2 <- cpm(y, normalized.lib.size=TRUE, log=TRUE)
+dim(iss.tmm2) # 25973 x 467
+idxs <- sapply(genes20, function(x) grep(paste0("^", x, "$"), rownames(iss.tmm2)))
+genes20.iss2 <- iss.tmm2[idxs, ]
+genes20.iss2[1:5, 1:5]
+```
+
+
+Plot histograms and density plots
+```{r}
+library(RColorBrewer)
+library(ggplot2)
+
+### format dataset
+## genes20.iss is only risk 1 vs 3
+d <- data.frame(Genes=rownames(genes20.iss), genes20.iss)
+dd <- d %>% gather(Patient, Expression, -Genes)
+head(dd)
+## change Patient to R-ISS
+dd$Patient[which(dd$Patient %in% r.iss$Patient[r.iss$R_ISS==3])] <- 3
+dd$Patient[which(dd$Patient %in% r.iss$Patient[r.iss$R_ISS==2])] <- 2
+dd$Patient[which(dd$Patient %in% r.iss$Patient[r.iss$R_ISS==1])] <- 1
+dd$Patient <- factor(dd$Patient)
+str(dd)
+table(dd$Patient)
+
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(9, "Blues"))(ncols)
+
+### boxplot
+ggplot(dd, aes(x=Genes, y=Expression, fill=Patient)) + 
+  geom_boxplot(notch=TRUE, outlier.size=1, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) + 
+  ggtitle("Gene Expression") + ylab("Gene expression (z-score)")
+
+### format data  for histogram and density plots
+df <- data.frame(t(genes20.iss2), R_ISS=varr)
+table1[table1$fdr < 0.05, ] # r-iss 1 vs 3 (n=172)
+table2[table2$fdr < 0.05, ] # r-iss all three (n=467)
+## histogram
+ggplot(data=df, aes(x=SLAMF7, fill=R_ISS, na.rm=TRUE)) +
+  geom_histogram(bins=30) +
+  scale_color_brewer(palette="Paired") +
+  scale_fill_brewer(palette="Paired") +
+  facet_wrap(~R_ISS, nc=1)
+
+## density plot
+ggplot(data=df) +
+  stat_density(aes(x=SLAMF7, fill=R_ISS), 
+               position="identity",alpha=0.6) +
+  scale_color_brewer(palette="Paired") +
+  scale_fill_brewer(palette="Paired") 
+```
+-->
+
+Re-run R-ISS calculations and plots using TMM normalized matrix
+```{r}
+genes20.mmrf <- readRDS(file="~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_mmrf.rds")
+dim(genes20.mmrf)
+riss.matched <- readRDS(r.iss.subset, file="~/Downloads/Rshiny_cell-markers/datasets/r-iss_matched.rds")
+dim(riss.matched)
+
+genes20.mmrf.matched <- genes20.mmrf[, which(colnames(genes20.mmrf) %in% riss.matched$Patient)]
+
+all.equal(colnames(genes20.mmrf.matched), as.character(riss.matched$Patient)) # TRUE
+
+### format dataset
+## genes20.iss is only risk 1 vs 3
+d <- data.frame(Genes=rownames(genes20.mmrf.matched), genes20.mmrf.matched)
+dd <- d %>% gather(R_ISS, Expression, -Genes)
+head(dd)
+## change Patient to R-ISS
+dd$R_ISS[which(dd$R_ISS %in% riss.matched$Patient[riss.matched$R_ISS==3])] <- 3
+dd$R_ISS[which(dd$R_ISS %in% riss.matched$Patient[riss.matched$R_ISS==2])] <- 2
+dd$R_ISS[which(dd$R_ISS %in% riss.matched$Patient[riss.matched$R_ISS==1])] <- 1
+dd$R_ISS <- factor(dd$R_ISS)
+str(dd)
+table(dd$R_ISS)
+
+
+### Save plot
+tiff("~/Downloads/Rshiny_cell-markers/Rplots/figure1/R_ISS_boxplot.tiff", res = 300, width = 10, height = 7, units = "in")
+## specify how many groups need color
+ncols <- 3
+mycolors <- colorRampPalette(brewer.pal(9, "Blues"))(ncols)
+## provide gene order from make_boxplots
+genes.order <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/genes21/genes24_order.rds")
+dd$Genes.relevel <- factor(dd$Genes, levels=genes.order)
+## plot
+ggplot(dd, aes(x=Genes.relevel, y=Expression, fill=R_ISS)) +
+  geom_boxplot(notch=TRUE, outlier.shape=NA, show.legend=TRUE) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.x = element_text(angle=90, size=10)) +
+  theme(axis.title = element_text(size=12)) +
+  ggtitle("Gene expression stratified by R-ISS") + 
+  ylab("log2(Expression)") +
+  xlab("Genes")
+dev.off()
+
+
+### ANOVA
+## make sure this is true before running
+all.equal(colnames(genes20.mmrf.matched), as.character(riss.matched$Patient)) # TRUE
+markers <- rownames(genes20.mmrf.matched)
+for(gene in markers) {
+  gene.expr <- genes20.mmrf.matched[gene, ]
+  
+  # ANOVA
+  model <- aov(gene.expr ~ riss.matched$R_ISS)
+  aov.pval <- summary(aov(model))[[1]][["Pr(>F)"]][[1]]
+  
+  # if significant, then Tukey
+  if(aov.pval <= 0.05) {
+    print(paste("yes", gene))
+    
+    tukey <- TukeyHSD(model)
+    
+    write.csv(tukey$`riss.matched$R_ISS`, file=paste0("~/Downloads/Rshiny_cell-markers/Rtables/R_ISS_tukey/", gene, ".csv"))
+  }
+}
+```
+
+
+
+
+```{r}
+save.image(file="~/Downloads/Rshiny_cell-markers/Rdata/revised_ISS_01-25-2020.Rda")
+load(file="~/Downloads/Rshiny_cell-markers/Rdata/revised_ISS_01-25-2020.Rda")
+```

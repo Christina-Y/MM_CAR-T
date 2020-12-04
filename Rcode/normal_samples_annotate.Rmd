@@ -1,0 +1,289 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+save.image("~/Downloads/Rshiny_cell-markers/Rdata/Rdata_dump/mmrf_normals_stats_boxplots_Rdata_dump.Rda")
+
+library(GEOquery)
+library(biomaRt)
+```
+
+GSE17054 - normal donors' HSC
+```{r}
+gse17054 <- getGEO("GSE17054")
+summary(gse17054)
+
+gset <- gse17054[[1]]
+expr.mat <- exprs(gset)
+dim(expr.mat) # 54675    13
+
+### select normal samples
+pheno <- phenoData(gset)
+str(pheno@data)
+expr.mat <- expr.mat[, grep("Normal", pheno@data$source_name_ch1)]
+dim(expr.mat) # 54675     4
+
+### Annotate with biomart
+mart <- useMart("ENSEMBL_MART_ENSEMBL")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- getBM(mart=mart, 
+                     attributes=c("affy_hg_u133_plus_2", "hgnc_symbol"), 
+                     filter="affy_hg_u133_plus_2", 
+                     values=rownames(expr.mat), 
+                     uniqueRows=TRUE)
+dim(annotLookup) # 47521     2
+head(annotLookup, 10)
+
+### ignore probes that don't have associated gene symbol
+affy.hgnc <- annotLookup[which(annotLookup$hgnc_symbol!=""), c("affy_hg_u133_plus_2", "hgnc_symbol")]
+head(affy.hgnc)
+dim(affy.hgnc) # 43228     2
+length(unique(annotLookup$affy_hg_u133_plus_2)) # 42722
+length(unique(annotLookup$hgnc_symbol)) # 21744
+
+### match affy probes to gene names
+head(rownames(expr.mat)) # affy
+expr.mat.annot <- expr.mat[which(rownames(expr.mat) %in% affy.hgnc$affy_hg_u133_plus_2), ]
+dim(expr.mat.annot) # 39984    22
+head(rownames(expr.mat.annot))
+idx <- match(rownames(expr.mat.annot), affy.hgnc$affy_hg_u133_plus_2) # 39984
+anyNA(idx) # FALSE - check if any NAs
+# spot check to see if idx is correct
+head(affy.hgnc$affy_hg_u133_plus_2[idx])
+head(rownames(expr.mat.annot))
+## annotate
+rownames(expr.mat.annot) <- affy.hgnc$hgnc_symbol[idx]
+head(expr.mat.annot[, 1:4])
+
+expr.mat.affy <- cbind(affy.hgnc$affy_hg_u133_plus_2[idx], expr.mat.annot)
+expr.mat.affy[1:5, 1:5]
+head(expr.mat.affy[, 1]) # gene symbols are in rownames, affy in first column
+```
+
+```{r}
+gse68878 <- getGEO("GSE68878")
+
+```
+
+```{r}
+gse24759 <- getGEO("GSE24759")
+```
+
+GSE6477 - normal donors' plasma cells  
+```{r}
+gse6477 <- getGEO("GSE6477")
+
+gset <- gse6477[[1]]
+expr.mat <- exprs(gset)
+dim(expr.mat) # 22283   162
+
+### select normal samples
+pheno <- phenoData(gset)
+table(pheno@data$title)
+norm.expr.mat <- expr.mat[, grep("Normal", pheno@data$title)]
+dim(norm.expr.mat) # 22283    15
+normal.pts <- colnames(norm.expr.mat)
+mm.expr.mat <- expr.mat[, grep("MM", pheno@data$title)]
+dim(mm.expr.mat) # 22283    125
+mm.pts <- colnames(mm.expr.mat)
+new.mm.expr.mat <- expr.mat[, grep("New MM", pheno@data$title)]
+dim(new.mm.expr.mat) # 22283    73
+new.mm.pts <- colnames(new.mm.expr.mat)
+
+## make factor with normal and mm pts
+norm.all.mm.factor <- factor(c(rep("Normal", length(normal.pts)), rep("MM", length(mm.pts))))
+names(norm.all.mm.factor) <- c(normal.pts, mm.pts)
+which(names(norm.all.mm.factor) %in% normal.pts) # double-check
+norm.all.mm.factor <- factor(norm.all.mm.factor, levels=levels(norm.all.mm.factor)[c(2, 1)])
+levels(norm.all.mm.factor) # Normal is first
+saveRDS(norm.all.mm.factor, "~/Downloads/Rshiny_cell-markers/Rdata/factors/gse6477_norm_all-mm_factors.rds")
+
+####### if already know probe names: #######
+probes <- readRDS("~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_gse6477_affy.rds")
+genes24.expr.mat <- expr.mat[probes, ]
+all.equal(rownames(genes24.expr.mat), as.character(probes))
+rownames(genes24.expr.mat) <- names(probes)
+genes24.expr.mat.log2 <- log2(genes24.expr.mat)
+genes24.expr.mat.log2[1:5, 1:5]
+saveRDS(genes24.expr.mat.log2, "~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_gse6477_log2_full.rds")
+
+### Annotate with biomart
+mart <- useMart("ENSEMBL_MART_ENSEMBL")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- getBM(mart=mart, 
+                     attributes=c("affy_hg_u133a", "hgnc_symbol"), 
+                     filter="affy_hg_u133_plus_2", 
+                     values=rownames(expr.mat), 
+                     uniqueRows=TRUE)
+dim(annotLookup) # 38384     2
+head(annotLookup, 10)
+
+### ignore probes that don't have associated gene symbol
+affy.hgnc <- annotLookup[which(annotLookup$hgnc_symbol!=""), c("affy_hg_u133a", "hgnc_symbol")]
+head(affy.hgnc)
+dim(affy.hgnc) # 36626     2
+length(unique(annotLookup$affy_hg_u133a)) # 20188
+length(unique(annotLookup$hgnc_symbol)) # 14005
+
+### match affy probes to gene names
+head(rownames(expr.mat)) # affy
+expr.mat.annot <- expr.mat[which(rownames(expr.mat) %in% affy.hgnc$affy_hg_u133a), ]
+dim(expr.mat.annot) # 19924    15
+head(rownames(expr.mat.annot))
+idx <- match(rownames(expr.mat.annot), affy.hgnc$affy_hg_u133a) # 19924
+anyNA(idx) # FALSE - check if any NAs
+# spot check to see if idx is correct
+head(affy.hgnc$affy_hg_u133a[idx])
+head(rownames(expr.mat.annot))
+## annotate
+rownames(expr.mat.annot) <- affy.hgnc$hgnc_symbol[idx]
+head(expr.mat.annot[, 1:6])
+
+expr.mat.affy <- cbind(affy.hgnc$affy_hg_u133a[idx], expr.mat.annot)
+expr.mat.affy[1:5, 1:5]
+head(expr.mat.affy[, 1]) # gene symbols are in rownames, affy in first column
+```
+
+GSE5900 - normal donors' plasma cells 
+```{r}
+gse5900 <- getGEO("GSE5900")
+summary(gse5900)
+
+gset <- gse5900[[1]]
+expr.mat <- exprs(gset)
+dim(expr.mat) # 54675    78
+
+### select normal samples
+pheno <- phenoData(gset)
+expr.mat <- expr.mat[, grep("healthy", pheno@data$source_name_ch1)]
+dim(expr.mat) # 54675    22
+
+### Annotate with biomart
+mart <- useMart("ENSEMBL_MART_ENSEMBL")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- getBM(mart=mart, 
+                     attributes=c("affy_hg_u133_plus_2", "hgnc_symbol"), 
+                     filter="affy_hg_u133_plus_2", 
+                     values=rownames(expr.mat), 
+                     uniqueRows=TRUE)
+dim(annotLookup) # 47521     2
+head(annotLookup, 10)
+
+### ignore probes that don't have associated gene symbol
+affy.hgnc <- annotLookup[which(annotLookup$hgnc_symbol!=""), c("affy_hg_u133_plus_2", "hgnc_symbol")]
+head(affy.hgnc)
+dim(affy.hgnc) # 43228     2
+length(unique(annotLookup$affy_hg_u133_plus_2)) # 42722
+length(unique(annotLookup$hgnc_symbol)) # 21744
+
+### match affy probes to gene names
+head(rownames(expr.mat)) # affy
+expr.mat.annot <- expr.mat[which(rownames(expr.mat) %in% affy.hgnc$affy_hg_u133_plus_2), ]
+dim(expr.mat.annot) # 39984    22
+head(rownames(expr.mat.annot))
+idx <- match(rownames(expr.mat.annot), affy.hgnc$affy_hg_u133_plus_2) # 39984
+anyNA(idx) # FALSE - check if any NAs
+# spot check to see if idx is correct
+head(affy.hgnc$affy_hg_u133_plus_2[idx])
+head(rownames(expr.mat.annot))
+## annotate
+rownames(expr.mat.annot) <- affy.hgnc$hgnc_symbol[idx]
+head(expr.mat.annot[, 1:6])
+
+expr.mat.affy <- cbind(affy.hgnc$affy_hg_u133_plus_2[idx], expr.mat.annot)
+expr.mat.affy[1:5, 1:5]
+head(expr.mat.affy[, 1]) # gene symbols are in rownames, affy in first column
+```
+
+******
+This part can be done commonly
+```{r}
+gse.name <- "gse17054" # will be used to name files
+
+### are there duplicate gene names?
+length(which(table(rownames(expr.mat.annot)) > 1)) # 10442 dup genes
+head(which(table(rownames(expr.mat.annot)) > 1))
+
+genes <- unique(rownames(expr.mat.annot)) # 20316
+
+### determine index of which genes to keep
+### uses keep.largest function - found in section below
+keep.genes.idx <- sapply(genes, function(x) keep.largest(x, expr.mat.annot)) 
+head(keep.genes.idx)
+head(sort(names(keep.genes.idx)), 10)
+length(keep.genes.idx) # 20316
+length(unique(names(keep.genes.idx))) # 20316
+
+### which probes do the selected genes correspond to?
+keep.affy <- expr.mat.affy[keep.genes.idx, 1]
+head(keep.affy)
+
+### new matrix after annotation
+expr.mat.annot.uniq <- expr.mat.annot[keep.genes.idx, ]
+head(expr.mat.annot.uniq[, 1:6])
+dim(expr.mat.annot.uniq) # 20316    22
+head(sort(rownames(expr.mat.annot.uniq)))
+
+# log without filtering works - doesn't matter because will be pulling out specific genes
+expr.mat.log <- log2(expr.mat.annot.uniq + 1)
+expr.mat.log[1:6, 1:6]
+boxplot(expr.mat.log[, 1:15])
+saveRDS(expr.mat.log, file=paste0("~/Downloads/Rshiny_cell-markers/Rdata/normals/", gse.name, "_annot_log2.rds"))
+
+genes20 <- c("TNFRSF17", "CD38", "NCAM1", "SDC1", "TNFRSF13B", 
+             "SLAMF7", "CD19", "LY9", "ITGB7", "GPRC5D", 
+             "CD40", "CD44", "CD47", "BST2", "IGF1R", 
+             "ICAM1", "CD74", "CD81", "CD86", "CD200", "IGKC",
+             "FUT3", "CD70", "CD1D") # actually 24 genes
+
+### get indices of target genes
+idxs <- sapply(genes20, function(x) grep(paste0("^", x, "$"), rownames(expr.mat.log)))
+sum(is.na(idxs)) # 0
+rownames(expr.mat.log)[idxs]
+keep.affy[idxs]
+
+### save
+genes20.expr <- expr.mat.log[idxs, ]
+genes20.affy <- keep.affy[idxs]
+## change gene names here:
+rownames(genes20.expr)[rownames(genes20.expr)=="TNFRSF17"] <- "BCMA"
+rownames(genes20.expr)[rownames(genes20.expr)=="NCAM1"] <- "CD56"
+rownames(genes20.expr)[rownames(genes20.expr)=="SDC1"] <- "CD138"
+rownames(genes20.expr)[rownames(genes20.expr)=="TNFRSF13B"] <- "TACI"
+saveRDS(genes20.expr, file=paste0("~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_", gse.name, ".rds"))
+## do same for affy probes
+names(genes20.affy)[names(genes20.affy)=="TNFRSF17"] <- "BCMA"
+names(genes20.affy)[names(genes20.affy)=="NCAM1"] <- "CD56"
+names(genes20.affy)[names(genes20.affy)=="SDC1"] <- "CD138"
+names(genes20.affy)[names(genes20.affy)=="TNFRSF13B"] <- "TACI"
+saveRDS(genes20.affy, file=paste0("~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_", gse.name, "_affy.rds"))
+write.csv(genes20.affy, file=paste0("~/Downloads/Rshiny_cell-markers/Rdata/normals/genes24_", gse.name, "_affy.csv"))
+```
+
+
+keep.largest function for selecting genes that are duplicated
+```{r keep.largest}
+## a function to get index with highest sum in duplicated genes
+keep.largest <- function(genename, genematrix) {
+  # get index of rows in matrix that match name
+  idxs <- grep(paste0("^", genename, "$"), rownames(genematrix), value=FALSE)
+  # print(length(idxs))
+  
+  if(length(idxs) > 1) {
+    # make matrix with indices
+    mat <- genematrix[idxs, ]
+    rownames(mat) <- idxs
+    mat.sums <- rowSums(mat, na.rm=TRUE)
+    # get index with highest sum
+    max.idx <- rownames(mat)[which(mat.sums==max(mat.sums))]
+  } else {
+    max.idx <- idxs
+  }
+  
+  return(as.numeric(max.idx))
+}
+```
